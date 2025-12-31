@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 import streamlit as st
+
+
+_DJANGO_INIT_LOCK = threading.Lock()
 
 
 @st.cache_resource
@@ -24,8 +29,23 @@ def init_django() -> None:
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
     import django  # noqa: WPS433 (runtime import is intentional)
+    from django.apps import apps as django_apps  # noqa: WPS433
 
-    django.setup()
+    # Streamlit Cloud では同時実行で初期化が競合することがあるため、ロック＋ガードで保護する
+    with _DJANGO_INIT_LOCK:
+        if django_apps.ready:
+            return
+
+        try:
+            django.setup()
+        except RuntimeError as e:  # noqa: BLE001
+            # 別スレッドが populate 中に再入すると発生する。ready になるまで待って回避する。
+            if "populate() isn't reentrant" in str(e):
+                for _ in range(50):  # 最大約5秒待つ
+                    if django_apps.ready:
+                        return
+                    time.sleep(0.1)
+            raise
 
     # DBが無い/古い場合に備えて migrate を実行（例外が出てもUIは落とさない）
     try:
