@@ -64,7 +64,7 @@ def _login_ui() -> None:
     with st.expander("初期セットアップ（未ログインで復元）", expanded=False):
         st.caption(
             "SQLiteの `db.sqlite3` を復元すればユーザー情報も含めて戻せます。"
-            "ZIPバックアップは「新規ユーザ作成」と組み合わせてデータを取り込めます。"
+            "（本アプリからの新規ユーザー作成は行いません）"
         )
 
         st.markdown("#### 1) SQLite(db.sqlite3) をアップロードして復元（ユーザーも含む）")
@@ -78,7 +78,6 @@ def _login_ui() -> None:
         if use_postgres_env:
             st.warning("環境変数 `USE_POSTGRES=1` が設定されています。現在はPostgreSQL優先のため、SQLite復元は反映されません。")
 
-        st.warning("この操作はDBを置き換えます。公開運用では `SETUP_TOKEN` の設定を推奨します。")
         setup_token_required = (os.getenv("SETUP_TOKEN") or "").strip()
         token_ok = True
         if setup_token_required:
@@ -133,8 +132,8 @@ def _login_ui() -> None:
                 st.error(f"復元に失敗しました: {e}")
 
         st.divider()
-        st.markdown("#### 2) ZIPバックアップを新規ユーザに取り込み（ユーザーは作成が必要）")
-        st.caption("ZIPにはユーザー情報は含めていないため、まず新規ユーザーを作成します。")
+        st.markdown("#### 2) ZIPバックアップの復元について")
+        st.caption("ZIPバックアップの復元はログイン後に「バックアップ/復元」ページから実行してください。")
 
     # ここから Django が必要
     _require_django()
@@ -157,41 +156,7 @@ def _login_ui() -> None:
                 st.rerun()
 
     with cols[1]:
-        with st.popover("新規ユーザ作成"):
-            st.caption("初回利用の場合のみ作成してください（Django標準User）。")
-            new_username = st.text_input("新規ユーザー名", key="signup_username")
-            new_email = st.text_input("メール（任意）", key="signup_email")
-            new_password = st.text_input("新規パスワード", type="password", key="signup_password")
-            new_password2 = st.text_input("新規パスワード（確認）", type="password", key="signup_password2")
-            backup_zip = st.file_uploader("（任意）バックアップZIPを取り込む", type=["zip"], key="signup_backup_zip")
-            purge_before_import = st.checkbox("取り込み前に自分の既存データを削除（新規ユーザなら不要）", value=False, key="signup_purge")
-            if st.button("作成", use_container_width=True, key="signup_submit"):
-                if not new_username or not new_password:
-                    st.error("ユーザー名とパスワードは必須です。")
-                elif new_password != new_password2:
-                    st.error("パスワード確認が一致しません。")
-                else:
-                    from django.contrib.auth import get_user_model
-
-                    User = get_user_model()
-                    if User.objects.filter(username=new_username).exists():
-                        st.error("同名ユーザーが既に存在します。")
-                    else:
-                        user = User.objects.create_user(
-                            username=new_username,
-                            password=new_password,
-                            email=new_email or "",
-                        )
-                        # ZIPがあれば新規ユーザーに取り込み
-                        if backup_zip is not None:
-                            try:
-                                _import_user_data_zip(user, backup_zip.getvalue(), purge_before_import=purge_before_import)
-                                st.success("バックアップZIPを取り込みました。")
-                            except Exception as e:  # noqa: BLE001
-                                st.warning(f"ZIPの取り込みに失敗しました: {e}")
-                        _set_auth_state(user.id, user.username)
-                        st.success("作成しました。ログインしました。")
-                        st.rerun()
+        st.info("新規ユーザー作成はDB取り込み（db.sqlite3復元）または管理画面で行ってください。")
 
 
 def _active_decks(user) -> list[str]:
@@ -577,7 +542,7 @@ def _page_analysis(user) -> None:
 def _page_master(user) -> None:
     from dashbords.models import Deck, OpponentDeck
 
-    st.subheader("マスタ管理（デッキ）")
+    st.subheader("設定")
 
     tab1, tab2 = st.tabs(["使用デッキ", "対面デッキ"])
 
@@ -857,8 +822,7 @@ def _page_backup_restore(user) -> None:
 def main() -> None:
     st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide")
 
-    st.title("Data Aggregation（Streamlit版）")
-    st.caption("DjangoのDB/モデルをそのまま使い、UIだけStreamlitで動かします。")
+    st.title("試合結果集計ツール")  
 
     auth = _get_auth_state()
     with st.sidebar:
@@ -873,7 +837,7 @@ def main() -> None:
 
         page = st.radio(
             "ページ",
-            options=["ログイン", "入力", "結果一覧", "分析", "マスタ管理", "バックアップ/復元"],
+            options=["ログイン", "入力", "結果一覧", "分析", "設定", "バックアップ/復元"],
             index=0 if not auth else 1,
         )
 
