@@ -155,9 +155,6 @@ def _login_ui() -> None:
                 _set_auth_state(user.id, user.username)
                 st.rerun()
 
-    with cols[1]:
-        st.info("新規ユーザー作成はDB取り込み（db.sqlite3復元）または管理画面で行ってください。")
-
 
 def _active_decks(user) -> list[str]:
     from dashbords.models import Deck
