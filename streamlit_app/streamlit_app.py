@@ -56,6 +56,10 @@ def _get_user(user_id: int):
 def _login_ui() -> None:
     st.subheader("ログイン / 初期セットアップ")
 
+    # 直前の復元が完了して rerun した場合に表示
+    if st.session_state.pop("sqlite_restore_done", False):
+        st.success("db.sqlite3 を復元しました。ログインしてください。")
+
     # --- 初期復元（未ログイン） ---
     with st.expander("初期セットアップ（未ログインで復元）", expanded=False):
         st.caption(
@@ -64,6 +68,16 @@ def _login_ui() -> None:
         )
 
         st.markdown("#### 1) SQLite(db.sqlite3) をアップロードして復元（ユーザーも含む）")
+        # 復元先パスを明示（Cloudでもここに書き込みます）
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+        db_path = os.path.join(repo_root, "db.sqlite3")
+        st.caption(f"復元先: `{db_path}`")
+
+        # PostgreSQL設定が有効だと SQLite を書き換えても反映されないため注意喚起
+        use_postgres_env = (os.getenv("USE_POSTGRES") or "").strip().lower() in {"1", "true", "yes", "on"}
+        if use_postgres_env:
+            st.warning("環境変数 `USE_POSTGRES=1` が設定されています。現在はPostgreSQL優先のため、SQLite復元は反映されません。")
+
         st.warning("この操作はDBを置き換えます。公開運用では `SETUP_TOKEN` の設定を推奨します。")
         setup_token_required = (os.getenv("SETUP_TOKEN") or "").strip()
         token_ok = True
@@ -72,19 +86,51 @@ def _login_ui() -> None:
             token_ok = token_in == setup_token_required
             st.caption("`SETUP_TOKEN` が設定されているため、入力が一致した場合のみ復元できます。")
 
-        uploaded_db = st.file_uploader("db.sqlite3 を選択", type=["sqlite3", "db", "sqlite"], key="upload_sqlite_db")
-        if st.button("SQLiteを復元して再起動", type="primary", use_container_width=True, disabled=(uploaded_db is None or not token_ok)):
-            # Django初期化前でも良いように、ファイルを所定パスへ書き込み→キャッシュクリア→rerun
-            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-            db_path = os.path.join(repo_root, "db.sqlite3")
-            with open(db_path, "wb") as f:
-                f.write(uploaded_db.getvalue())
+        uploaded_db = st.file_uploader(
+            "db.sqlite3 を選択（または db.sqlite3 を含むZIP）",
+            type=["sqlite3", "db", "sqlite", "zip"],
+            key="upload_sqlite_db",
+        )
+        if st.button(
+            "SQLiteを復元して再起動",
+            type="primary",
+            use_container_width=True,
+            disabled=(uploaded_db is None or not token_ok or use_postgres_env),
+        ):
             try:
-                init_django.clear()  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            st.success("db.sqlite3 を復元しました。再起動します。")
-            st.rerun()
+                raw = uploaded_db.getvalue()
+                # ZIPの場合は中の db.sqlite3（または *.sqlite3 / *.db / *.sqlite）を探して取り出す
+                if (uploaded_db.name or "").lower().endswith(".zip"):
+                    with zipfile.ZipFile(BytesIO(raw), mode="r") as z:
+                        candidates = [
+                            n for n in z.namelist() if n.lower().endswith(("db.sqlite3", ".sqlite3", ".db", ".sqlite"))
+                        ]
+                        if not candidates:
+                            st.error("ZIP内に db.sqlite3（または .sqlite3/.db/.sqlite）が見つかりません。")
+                            st.stop()
+                        preferred = [n for n in candidates if n.lower().endswith("db.sqlite3")]
+                        target_name = preferred[0] if preferred else candidates[0]
+                        raw = z.read(target_name)
+                        st.caption(f"ZIPから `{target_name}` を取り出しました。")
+
+                with open(db_path, "wb") as f:
+                    f.write(raw)
+
+                # キャッシュが残ると古いDB接続のままになるため全消し
+                try:
+                    init_django.clear()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                try:
+                    st.cache_resource.clear()
+                    st.cache_data.clear()
+                except Exception:
+                    pass
+
+                st.session_state["sqlite_restore_done"] = True
+                st.rerun()
+            except Exception as e:  # noqa: BLE001
+                st.error(f"復元に失敗しました: {e}")
 
         st.divider()
         st.markdown("#### 2) ZIPバックアップを新規ユーザに取り込み（ユーザーは作成が必要）")
