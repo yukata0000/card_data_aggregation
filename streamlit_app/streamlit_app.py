@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import os
 from io import BytesIO, StringIO
 import csv
 import zipfile
@@ -53,8 +54,44 @@ def _get_user(user_id: int):
 
 
 def _login_ui() -> None:
+    st.subheader("ログイン / 初期セットアップ")
+
+    # --- 初期復元（未ログイン） ---
+    with st.expander("初期セットアップ（未ログインで復元）", expanded=False):
+        st.caption(
+            "SQLiteの `db.sqlite3` を復元すればユーザー情報も含めて戻せます。"
+            "ZIPバックアップは「新規ユーザ作成」と組み合わせてデータを取り込めます。"
+        )
+
+        st.markdown("#### 1) SQLite(db.sqlite3) をアップロードして復元（ユーザーも含む）")
+        st.warning("この操作はDBを置き換えます。公開運用では `SETUP_TOKEN` の設定を推奨します。")
+        setup_token_required = (os.getenv("SETUP_TOKEN") or "").strip()
+        token_ok = True
+        if setup_token_required:
+            token_in = st.text_input("SETUP_TOKEN", type="password", key="setup_token_input")
+            token_ok = token_in == setup_token_required
+            st.caption("`SETUP_TOKEN` が設定されているため、入力が一致した場合のみ復元できます。")
+
+        uploaded_db = st.file_uploader("db.sqlite3 を選択", type=["sqlite3", "db", "sqlite"], key="upload_sqlite_db")
+        if st.button("SQLiteを復元して再起動", type="primary", use_container_width=True, disabled=(uploaded_db is None or not token_ok)):
+            # Django初期化前でも良いように、ファイルを所定パスへ書き込み→キャッシュクリア→rerun
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+            db_path = os.path.join(repo_root, "db.sqlite3")
+            with open(db_path, "wb") as f:
+                f.write(uploaded_db.getvalue())
+            try:
+                init_django.clear()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            st.success("db.sqlite3 を復元しました。再起動します。")
+            st.rerun()
+
+        st.divider()
+        st.markdown("#### 2) ZIPバックアップを新規ユーザに取り込み（ユーザーは作成が必要）")
+        st.caption("ZIPにはユーザー情報は含めていないため、まず新規ユーザーを作成します。")
+
+    # ここから Django が必要
     _require_django()
-    st.subheader("ログイン")
     col1, col2 = st.columns(2)
     with col1:
         username = st.text_input("ユーザー名", key="login_username")
@@ -80,6 +117,8 @@ def _login_ui() -> None:
             new_email = st.text_input("メール（任意）", key="signup_email")
             new_password = st.text_input("新規パスワード", type="password", key="signup_password")
             new_password2 = st.text_input("新規パスワード（確認）", type="password", key="signup_password2")
+            backup_zip = st.file_uploader("（任意）バックアップZIPを取り込む", type=["zip"], key="signup_backup_zip")
+            purge_before_import = st.checkbox("取り込み前に自分の既存データを削除（新規ユーザなら不要）", value=False, key="signup_purge")
             if st.button("作成", use_container_width=True, key="signup_submit"):
                 if not new_username or not new_password:
                     st.error("ユーザー名とパスワードは必須です。")
@@ -97,6 +136,13 @@ def _login_ui() -> None:
                             password=new_password,
                             email=new_email or "",
                         )
+                        # ZIPがあれば新規ユーザーに取り込み
+                        if backup_zip is not None:
+                            try:
+                                _import_user_data_zip(user, backup_zip.getvalue(), purge_before_import=purge_before_import)
+                                st.success("バックアップZIPを取り込みました。")
+                            except Exception as e:  # noqa: BLE001
+                                st.warning(f"ZIPの取り込みに失敗しました: {e}")
                         _set_auth_state(user.id, user.username)
                         st.success("作成しました。ログインしました。")
                         st.rerun()
