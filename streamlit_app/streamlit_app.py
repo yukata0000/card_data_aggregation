@@ -9,7 +9,10 @@ from typing import Any, Optional
 
 import streamlit as st
 
-from streamlit_app.django_bootstrap import init_django
+# Streamlit Cloud では `streamlit_app/streamlit_app.py` をディレクトリ直下として実行するため、
+# `streamlit_app.django_bootstrap` のようなパッケージ参照だと同名ファイル解決の衝突が起きうる。
+# 同一ディレクトリのモジュールとして import する。
+from django_bootstrap import init_django
 
 
 @dataclass(frozen=True)
