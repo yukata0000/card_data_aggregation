@@ -1,0 +1,8 @@
+Django==5.2.9
+psycopg[binary]==3.2.10
+
+# Windows環境で zoneinfo を補うため（venvに入っている構成に合わせて明示）
+tzdata==2025.3
+
+# Streamlit 版UI
+streamlit>=1.35,<2
