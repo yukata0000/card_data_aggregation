@@ -364,7 +364,8 @@ def _page_results(user) -> None:
         disabled=["id"],
         column_config={
             "selected": st.column_config.CheckboxColumn("選択"),
-            "id": st.column_config.NumberColumn("ID", width="small"),
+            # id は内部的に選択/編集/削除に使うが、表には表示しない
+            "id": None,
             "date": st.column_config.TextColumn("日付", width="small"),
             "used_deck": st.column_config.TextColumn("使用デッキ", width="medium"),
             "opponent_deck": st.column_config.TextColumn("対面デッキ", width="medium"),
