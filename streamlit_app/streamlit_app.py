@@ -436,11 +436,10 @@ def _page_analysis(user) -> None:
 
     def _table_no_index(rows: list[dict[str, Any]]) -> None:
         df = pd.DataFrame(rows)
-        # st.table はインデックス（行番号）が表示されやすいので、Stylerで隠す
-        try:
-            st.table(df.style.hide(axis="index"))
-        except Exception:  # noqa: BLE001
-            st.table(df)
+        # st.table は環境によってインデックス（行番号）が消えないことがあるため、
+        # index=False の HTML を生成して確実に非表示にする（値はエスケープして安全に表示）
+        html = df.to_html(index=False, escape=True)
+        st.markdown(html, unsafe_allow_html=True)
 
     qs = Result.objects.filter(user=user)
 
@@ -867,7 +866,7 @@ def main() -> None:
     if page == "分析":
         _page_analysis(user)
         return
-    if page == "マスタ管理":
+    if page == "設定":
         _page_master(user)
         return
     if page == "バックアップ/復元":
