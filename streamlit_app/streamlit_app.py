@@ -9,6 +9,7 @@ import zipfile
 from typing import Any, Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Streamlit Cloud では `streamlit_app/streamlit_app.py` をディレクトリ直下として実行するため、
 # `streamlit_app.django_bootstrap` のようなパッケージ参照だと同名ファイル解決の衝突が起きうる。
@@ -20,6 +21,94 @@ from django_bootstrap import init_django
 class AuthState:
     user_id: int
     username: str
+
+
+def _inject_global_css() -> None:
+    st.markdown(
+        """
+<style>
+/* --- 横/縦に収まらない表はスクロールさせる --- */
+.scroll-table {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 70vh;
+  border: 1px solid rgba(49, 51, 63, 0.2);
+  border-radius: 8px;
+}
+.scroll-table table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+.scroll-table th, .scroll-table td {
+  white-space: nowrap;
+}
+
+/* StreamlitのDataFrame/DataEditorも、はみ出す時は横スクロールできるようにする（環境差の保険） */
+div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
+  overflow-x: auto;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _inject_sidebar_autoclose_js() -> None:
+    """
+    サイドバー（メニュー）が開いている時、メイン画面側をクリックしたらサイドバーを閉じる。
+    Streamlit標準では提供されないため、DOM操作で実現する（Streamlitの内部実装変更に弱い点は注意）。
+    """
+    components.html(
+        """
+<script>
+(function () {
+  const w = window.parent;
+  if (!w || !w.document) return;
+  if (w.__sidebarAutoCloseInstalled) return;
+  w.__sidebarAutoCloseInstalled = true;
+
+  const doc = w.document;
+
+  function findSidebar() {
+    return doc.querySelector('[data-testid="stSidebar"]');
+  }
+
+  function findCloseButton(sidebar) {
+    if (!sidebar) return null;
+    // 可能性のあるセレクタを複数試す（Streamlitバージョン差の吸収）
+    return (
+      sidebar.querySelector('button[aria-label="Close sidebar"]') ||
+      sidebar.querySelector('button[title="Close sidebar"]') ||
+      doc.querySelector('button[aria-label="Close sidebar"]') ||
+      null
+    );
+  }
+
+  function isSidebarOpen(sidebar) {
+    if (!sidebar) return false;
+    const rect = sidebar.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function onAnyClick(e) {
+    const sidebar = findSidebar();
+    if (!isSidebarOpen(sidebar)) return;
+    if (sidebar && sidebar.contains(e.target)) return; // サイドバー内クリックは閉じない
+
+    const closeBtn = findCloseButton(sidebar);
+    if (closeBtn) closeBtn.click();
+  }
+
+  doc.addEventListener('click', onAnyClick, true);
+  doc.addEventListener('touchstart', onAnyClick, true);
+})();
+</script>
+""",
+        height=0,
+        width=0,
+    )
 
 
 def _require_django() -> None:
@@ -364,6 +453,7 @@ def _page_results(user) -> None:
         # チェックボックス（selected）だけ操作可能にして、それ以外は編集不可＝静的表示に寄せる
         disabled=["id", "date", "used_deck", "opponent_deck", "play_order", "match_result", "note"],
         num_rows="fixed",
+        height=600,
         column_config={
             "selected": st.column_config.CheckboxColumn("選択"),
             # id は内部的に選択/編集/削除に使うが、表には表示しない
@@ -439,7 +529,7 @@ def _page_analysis(user) -> None:
         # st.table は環境によってインデックス（行番号）が消えないことがあるため、
         # index=False の HTML を生成して確実に非表示にする（値はエスケープして安全に表示）
         html = df.to_html(index=False, escape=True)
-        st.markdown(html, unsafe_allow_html=True)
+        st.markdown(f'<div class="scroll-table">{html}</div>', unsafe_allow_html=True)
 
     qs = Result.objects.filter(user=user)
 
@@ -829,6 +919,8 @@ def _page_backup_restore(user) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide")
+    _inject_global_css()
+    _inject_sidebar_autoclose_js()
 
     st.title("試合結果集計ツール")  
 
