@@ -867,7 +867,7 @@ def _page_backup_restore(user) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide", initial_sidebar_state="collapsed")
+    st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide", initial_sidebar_state="expanded")
     _inject_global_css()
 
     st.title("試合結果集計ツール")  
@@ -883,16 +883,15 @@ def main() -> None:
         else:
             st.info("未ログイン")
 
-    # スマホでも使いやすいよう、ページ切替は横並びではなくドロップダウンにする
-    if auth:
-        page = st.selectbox(
-            "ページ",
-            options=["入力", "結果一覧", "分析", "設定", "バックアップ/復元"],
-            key="page_nav",
-            index=0,
-        )
-    else:
-        page = "ログイン"
+        # 遷移先はサイドバーに表示（項目名をクリックすると遷移）
+        if auth:
+            page = st.radio(
+                "ページ",
+                options=["入力", "結果一覧", "分析", "設定", "バックアップ/復元"],
+                key="page_nav",
+            )
+        else:
+            page = "ログイン"
 
 
     if page == "ログイン":
