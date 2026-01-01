@@ -440,11 +440,11 @@ def _page_analysis(user) -> None:
     overall_decided = overall_win + overall_loss
     overall_win_rate = ((overall_win / overall_decided) * 100.0) if overall_decided else None
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4 = st.row(4)
     c1.metric("総対戦数", total_matches)
     c2.metric("勝ち", overall_win)
     c3.metric("負け", overall_loss)
-    c4.metric("勝率（〇/(〇+×)）", "-" if overall_win_rate is None else f"{overall_win_rate:.1f}%")
+    c4.metric("勝率（%）", "-" if overall_win_rate is None else f"{overall_win_rate:.1f}%")
 
     st.divider()
     st.markdown("#### 先行/後攻別")
