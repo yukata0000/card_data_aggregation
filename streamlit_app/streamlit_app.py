@@ -70,6 +70,7 @@ def _inject_sidebar_autoclose_js() -> None:
   w.__sidebarAutoCloseInstalled = true;
 
   const doc = w.document;
+  const CLOSE_ON_LOAD = false;
 
   function findSidebar() {
     return doc.querySelector('[data-testid="stSidebar"]');
@@ -110,6 +111,87 @@ def _inject_sidebar_autoclose_js() -> None:
         width=0,
     )
 
+
+def _inject_sidebar_close_on_load_js() -> None:
+    """次回描画時にサイドバーを1回だけ閉じる（ページ遷移直後など）。"""
+    components.html(
+        """
+<script>
+(function () {
+  const w = window.parent;
+  if (!w || !w.document) return;
+  const doc = w.document;
+
+  function findSidebar() {
+    return doc.querySelector('[data-testid="stSidebar"]');
+  }
+  function findCloseButton(sidebar) {
+    if (!sidebar) return null;
+    return (
+      sidebar.querySelector('button[aria-label="Close sidebar"]') ||
+      sidebar.querySelector('button[title="Close sidebar"]') ||
+      doc.querySelector('button[aria-label="Close sidebar"]') ||
+      null
+    );
+  }
+  function isSidebarOpen(sidebar) {
+    if (!sidebar) return false;
+    const rect = sidebar.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  // DOMの準備やStreamlitの再描画待ちのため、少しリトライする
+  let tries = 0;
+  const timer = setInterval(() => {
+    tries += 1;
+    const sidebar = findSidebar();
+    if (isSidebarOpen(sidebar)) {
+      const btn = findCloseButton(sidebar);
+      if (btn) btn.click();
+      clearInterval(timer);
+      return;
+    }
+    if (tries >= 20) clearInterval(timer);
+  }, 150);
+})();
+</script>
+""",
+        height=0,
+        width=0,
+    )
+
+
+def _inject_disable_data_editor_column_reorder_js() -> None:
+    """DataEditorの列ヘッダドラッグ（列入れ替え）を無効化して誤操作を防ぐ。"""
+    components.html(
+        """
+<script>
+(function () {
+  const w = window.parent;
+  if (!w || !w.document) return;
+  if (w.__disableDataEditorColReorderInstalled) return;
+  w.__disableDataEditorColReorderInstalled = true;
+
+  const doc = w.document;
+  function inDataEditor(e) {
+    const el = e.target;
+    if (!el || !el.closest) return false;
+    return !!el.closest('div[data-testid="stDataEditor"]');
+  }
+
+  // 列ヘッダのdragを止める（本体スクロール等は維持）
+  function onDragStart(e) {
+    if (!inDataEditor(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  doc.addEventListener('dragstart', onDragStart, true);
+})();
+</script>
+""",
+        height=0,
+        width=0,
+    )
 
 def _require_django() -> None:
     init_django()
@@ -370,7 +452,7 @@ def _page_results(user) -> None:
 
     st.subheader("結果一覧")
 
-    with st.expander("フィルタ / ソート", expanded=True):
+    with st.expander("フィルタ / ソート", expanded=False):
         c1, c2, c3 = st.columns(3)
         with c1:
             date_from = st.date_input("開始日（任意）", value=None, key="filter_date_from")
@@ -921,6 +1003,7 @@ def main() -> None:
     st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide")
     _inject_global_css()
     _inject_sidebar_autoclose_js()
+    _inject_disable_data_editor_column_reorder_js()
 
     st.title("試合結果集計ツール")  
 
@@ -940,6 +1023,14 @@ def main() -> None:
             options=["ログイン", "入力", "結果一覧", "分析", "設定", "バックアップ/復元"],
             index=0 if not auth else 1,
         )
+
+    # メニューから画面遷移した直後はサイドバーを閉じる（直感的な操作）
+    prev_page = st.session_state.get("_prev_page")
+    if prev_page is not None and prev_page != page:
+        st.session_state["_close_sidebar_once"] = True
+    st.session_state["_prev_page"] = page
+    if st.session_state.pop("_close_sidebar_once", False):
+        _inject_sidebar_close_on_load_js()
 
     if page == "ログイン":
         if auth:
