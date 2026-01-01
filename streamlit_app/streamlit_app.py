@@ -361,7 +361,9 @@ def _page_results(user) -> None:
         rows,
         hide_index=True,
         use_container_width=True,
-        disabled=["id"],
+        # チェックボックス（selected）だけ操作可能にして、それ以外は編集不可＝静的表示に寄せる
+        disabled=["id", "date", "used_deck", "opponent_deck", "play_order", "match_result", "note"],
+        num_rows="fixed",
         column_config={
             "selected": st.column_config.CheckboxColumn("選択"),
             # id は内部的に選択/編集/削除に使うが、表には表示しない
@@ -432,6 +434,14 @@ def _page_analysis(user) -> None:
 
     st.subheader("分析")
 
+    def _table_no_index(rows: list[dict[str, Any]]) -> None:
+        df = pd.DataFrame(rows)
+        # st.table はインデックス（行番号）が表示されやすいので、Stylerで隠す
+        try:
+            st.table(df.style.hide(axis="index"))
+        except Exception:  # noqa: BLE001
+            st.table(df)
+
     qs = Result.objects.filter(user=user)
 
     total_matches = qs.count()
@@ -469,7 +479,7 @@ def _page_analysis(user) -> None:
         )
     po_unknown_total = qs.filter(Q(play_order="") | Q(play_order__isnull=True)).count()
     st.caption(f"先行/後攻 未入力: {po_unknown_total}")
-    st.table(pd.DataFrame(play_order_summary))
+    _table_no_index(play_order_summary)
 
     st.divider()
     st.markdown("#### 使用デッキごとの集計")
@@ -501,7 +511,7 @@ def _page_analysis(user) -> None:
                 "win_rate": "-" if win_rate is None else f"{win_rate:.1f}%",
             }
         )
-    st.table(pd.DataFrame(per_deck))
+    _table_no_index(per_deck)
 
     st.divider()
     st.markdown("#### (使用デッキ × 対面デッキ) の集計")
@@ -535,7 +545,7 @@ def _page_analysis(user) -> None:
                 "win_rate": "-" if win_rate is None else f"{win_rate:.1f}%",
             }
         )
-    st.table(pd.DataFrame(matchups))
+    _table_no_index(matchups)
 
 
 def _page_master(user) -> None:
