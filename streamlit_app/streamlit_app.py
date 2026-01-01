@@ -207,7 +207,7 @@ def _page_input(user) -> None:
     with col4:
         play_order = st.radio("先行/後攻", options=["先行", "後攻"], horizontal=True)
     with col5:
-        match_result = st.radio("勝敗", options=["〇", "×", "両敗"], horizontal=True)
+        match_result = st.radio("勝敗", options=["勝ち", "負け", "引き分け"], horizontal=True)
 
     note = st.text_area("備考", value="", height=120)
 
@@ -428,6 +428,7 @@ def _page_results(user) -> None:
 def _page_analysis(user) -> None:
     from dashbords.models import Result
     from django.db.models import Count, Q
+    import pandas as pd
 
     st.subheader("分析")
 
@@ -468,7 +469,7 @@ def _page_analysis(user) -> None:
         )
     po_unknown_total = qs.filter(Q(play_order="") | Q(play_order__isnull=True)).count()
     st.caption(f"先行/後攻 未入力: {po_unknown_total}")
-    st.dataframe(play_order_summary, use_container_width=True, hide_index=True)
+    st.table(pd.DataFrame(play_order_summary))
 
     st.divider()
     st.markdown("#### 使用デッキごとの集計")
@@ -500,7 +501,7 @@ def _page_analysis(user) -> None:
                 "win_rate": "-" if win_rate is None else f"{win_rate:.1f}%",
             }
         )
-    st.dataframe(per_deck, use_container_width=True, hide_index=True)
+    st.table(pd.DataFrame(per_deck))
 
     st.divider()
     st.markdown("#### (使用デッキ × 対面デッキ) の集計")
@@ -534,7 +535,7 @@ def _page_analysis(user) -> None:
                 "win_rate": "-" if win_rate is None else f"{win_rate:.1f}%",
             }
         )
-    st.dataframe(matchups, use_container_width=True, hide_index=True)
+    st.table(pd.DataFrame(matchups))
 
 
 def _page_master(user) -> None:
