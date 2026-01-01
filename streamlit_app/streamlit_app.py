@@ -125,10 +125,22 @@ def _inject_sidebar_close_on_load_js() -> None:
   function findSidebar() {
     return doc.querySelector('[data-testid="stSidebar"]');
   }
+  function findToggleButton() {
+    // Streamlitのバージョン差を吸収するため複数セレクタ
+    return (
+      doc.querySelector('button[aria-label="Toggle sidebar"]') ||
+      doc.querySelector('button[title="Toggle sidebar"]') ||
+      doc.querySelector('button[aria-label="Open sidebar"]') ||
+      doc.querySelector('button[aria-label="Close sidebar"]') ||
+      doc.querySelector('[data-testid="baseButton-header"] button') ||
+      null
+    );
+  }
   function findCloseButton(sidebar) {
     if (!sidebar) return null;
     return (
       sidebar.querySelector('button[aria-label="Close sidebar"]') ||
+      sidebar.querySelector('button[aria-label="Collapse sidebar"]') ||
       sidebar.querySelector('button[title="Close sidebar"]') ||
       doc.querySelector('button[aria-label="Close sidebar"]') ||
       null
@@ -137,7 +149,7 @@ def _inject_sidebar_close_on_load_js() -> None:
   function isSidebarOpen(sidebar) {
     if (!sidebar) return false;
     const rect = sidebar.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    return rect.width > 30 && rect.height > 0;
   }
 
   // DOMの準備やStreamlitの再描画待ちのため、少しリトライする
@@ -146,8 +158,13 @@ def _inject_sidebar_close_on_load_js() -> None:
     tries += 1;
     const sidebar = findSidebar();
     if (isSidebarOpen(sidebar)) {
-      const btn = findCloseButton(sidebar);
-      if (btn) btn.click();
+      const closeBtn = findCloseButton(sidebar);
+      if (closeBtn) {
+        closeBtn.click();
+      } else {
+        const toggleBtn = findToggleButton();
+        if (toggleBtn) toggleBtn.click();
+      }
       clearInterval(timer);
       return;
     }
@@ -1027,9 +1044,12 @@ def main() -> None:
     # メニューから画面遷移した直後はサイドバーを閉じる（直感的な操作）
     prev_page = st.session_state.get("_prev_page")
     if prev_page is not None and prev_page != page:
-        st.session_state["_close_sidebar_once"] = True
+        # 1回だとDOM準備が間に合わない環境があるので、数回リトライする
+        st.session_state["_close_sidebar_attempts"] = 3
     st.session_state["_prev_page"] = page
-    if st.session_state.pop("_close_sidebar_once", False):
+    attempts = int(st.session_state.get("_close_sidebar_attempts") or 0)
+    if attempts > 0:
+        st.session_state["_close_sidebar_attempts"] = attempts - 1
         _inject_sidebar_close_on_load_js()
 
     if page == "ログイン":
