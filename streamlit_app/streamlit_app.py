@@ -9,7 +9,6 @@ import zipfile
 from typing import Any, Optional
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 # Streamlit Cloud では `streamlit_app/streamlit_app.py` をディレクトリ直下として実行するため、
 # `streamlit_app.django_bootstrap` のようなパッケージ参照だと同名ファイル解決の衝突が起きうる。
@@ -27,6 +26,11 @@ def _inject_global_css() -> None:
     st.markdown(
         """
 <style>
+/* --- DataEditorの列ヘッダ操作（ドラッグ入れ替え等）を無効化して誤操作を防ぐ --- */
+div[data-testid="stDataEditor"] [role="columnheader"] {
+  pointer-events: none;
+}
+
 /* --- 横/縦に収まらない表はスクロールさせる --- */
 .scroll-table {
   width: 100%;
@@ -54,161 +58,6 @@ div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
         unsafe_allow_html=True,
     )
 
-
-def _inject_sidebar_autoclose_js() -> None:
-    """
-    サイドバー（メニュー）が開いている時、メイン画面側をクリックしたらサイドバーを閉じる。
-    Streamlit標準では提供されないため、DOM操作で実現する（Streamlitの内部実装変更に弱い点は注意）。
-    """
-    components.html(
-        """
-<script>
-(function () {
-  const w = window.parent;
-  if (!w || !w.document) return;
-  if (w.__sidebarAutoCloseInstalled) return;
-  w.__sidebarAutoCloseInstalled = true;
-
-  const doc = w.document;
-  const CLOSE_ON_LOAD = false;
-
-  function findSidebar() {
-    return doc.querySelector('[data-testid="stSidebar"]');
-  }
-
-  function findCloseButton(sidebar) {
-    if (!sidebar) return null;
-    // 可能性のあるセレクタを複数試す（Streamlitバージョン差の吸収）
-    return (
-      sidebar.querySelector('button[aria-label="Close sidebar"]') ||
-      sidebar.querySelector('button[title="Close sidebar"]') ||
-      doc.querySelector('button[aria-label="Close sidebar"]') ||
-      null
-    );
-  }
-
-  function isSidebarOpen(sidebar) {
-    if (!sidebar) return false;
-    const rect = sidebar.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
-
-  function onAnyClick(e) {
-    const sidebar = findSidebar();
-    if (!isSidebarOpen(sidebar)) return;
-    if (sidebar && sidebar.contains(e.target)) return; // サイドバー内クリックは閉じない
-
-    const closeBtn = findCloseButton(sidebar);
-    if (closeBtn) closeBtn.click();
-  }
-
-  doc.addEventListener('click', onAnyClick, true);
-  doc.addEventListener('touchstart', onAnyClick, true);
-})();
-</script>
-""",
-        height=0,
-        width=0,
-    )
-
-
-def _inject_sidebar_close_on_load_js() -> None:
-    """次回描画時にサイドバーを1回だけ閉じる（ページ遷移直後など）。"""
-    components.html(
-        """
-<script>
-(function () {
-  const w = window.parent;
-  if (!w || !w.document) return;
-  const doc = w.document;
-
-  function findSidebar() {
-    return doc.querySelector('[data-testid="stSidebar"]');
-  }
-  function findToggleButton() {
-    // Streamlitのバージョン差を吸収するため複数セレクタ
-    return (
-      doc.querySelector('button[aria-label="Toggle sidebar"]') ||
-      doc.querySelector('button[title="Toggle sidebar"]') ||
-      doc.querySelector('button[aria-label="Open sidebar"]') ||
-      doc.querySelector('button[aria-label="Close sidebar"]') ||
-      doc.querySelector('[data-testid="baseButton-header"] button') ||
-      null
-    );
-  }
-  function findCloseButton(sidebar) {
-    if (!sidebar) return null;
-    return (
-      sidebar.querySelector('button[aria-label="Close sidebar"]') ||
-      sidebar.querySelector('button[aria-label="Collapse sidebar"]') ||
-      sidebar.querySelector('button[title="Close sidebar"]') ||
-      doc.querySelector('button[aria-label="Close sidebar"]') ||
-      null
-    );
-  }
-  function isSidebarOpen(sidebar) {
-    if (!sidebar) return false;
-    const rect = sidebar.getBoundingClientRect();
-    return rect.width > 30 && rect.height > 0;
-  }
-
-  // DOMの準備やStreamlitの再描画待ちのため、少しリトライする
-  let tries = 0;
-  const timer = setInterval(() => {
-    tries += 1;
-    const sidebar = findSidebar();
-    if (isSidebarOpen(sidebar)) {
-      const closeBtn = findCloseButton(sidebar);
-      if (closeBtn) {
-        closeBtn.click();
-      } else {
-        const toggleBtn = findToggleButton();
-        if (toggleBtn) toggleBtn.click();
-      }
-      clearInterval(timer);
-      return;
-    }
-    if (tries >= 20) clearInterval(timer);
-  }, 150);
-})();
-</script>
-""",
-        height=0,
-        width=0,
-    )
-
-
-def _inject_disable_data_editor_column_reorder_js() -> None:
-    """DataEditorの列ヘッダドラッグ（列入れ替え）を無効化して誤操作を防ぐ。"""
-    components.html(
-        """
-<script>
-(function () {
-  const w = window.parent;
-  if (!w || !w.document) return;
-  if (w.__disableDataEditorColReorderInstalled) return;
-  w.__disableDataEditorColReorderInstalled = true;
-
-  const doc = w.document;
-  function inDataEditor(e) {
-    const el = e.target;
-    if (!el || !el.closest) return false;
-    return !!el.closest('div[data-testid="stDataEditor"]');
-  }
-
-  // 列ヘッダのdragを止める（本体スクロール等は維持）
-  function onDragStart(e) {
-    if (!inDataEditor(e)) return;
-    e.preventDefault();
-    e.stopPropagation();
-  }
-  doc.addEventListener('dragstart', onDragStart, true);
-})();
-</script>
-""",
-        height=0,
-        width=0,
-    )
 
 def _require_django() -> None:
     init_django()
@@ -1017,16 +866,14 @@ def _page_backup_restore(user) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide")
+    st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide", initial_sidebar_state="collapsed")
     _inject_global_css()
-    _inject_sidebar_autoclose_js()
-    _inject_disable_data_editor_column_reorder_js()
 
     st.title("試合結果集計ツール")  
 
     auth = _get_auth_state()
     with st.sidebar:
-        st.markdown("### メニュー")
+        st.markdown("### サイドバー")
         if auth:
             st.success(f"ログイン中: {auth.username}")
             if st.button("ログアウト", use_container_width=True):
@@ -1035,22 +882,16 @@ def main() -> None:
         else:
             st.info("未ログイン")
 
-        page = st.radio(
+    # スマホでも使いやすいよう、ページ切替は横並びではなくドロップダウンにする
+    if auth:
+        page = st.selectbox(
             "ページ",
-            options=["ログイン", "入力", "結果一覧", "分析", "設定", "バックアップ/復元"],
-            index=0 if not auth else 1,
+            options=["入力", "結果一覧", "分析", "設定", "バックアップ/復元"],
+            key="page_nav",
+            index=0,
         )
-
-    # メニューから画面遷移した直後はサイドバーを閉じる（直感的な操作）
-    prev_page = st.session_state.get("_prev_page")
-    if prev_page is not None and prev_page != page:
-        # 1回だとDOM準備が間に合わない環境があるので、数回リトライする
-        st.session_state["_close_sidebar_attempts"] = 3
-    st.session_state["_prev_page"] = page
-    attempts = int(st.session_state.get("_close_sidebar_attempts") or 0)
-    if attempts > 0:
-        st.session_state["_close_sidebar_attempts"] = attempts - 1
-        _inject_sidebar_close_on_load_js()
+    else:
+        page = "ログイン"
 
     if page == "ログイン":
         if auth:
