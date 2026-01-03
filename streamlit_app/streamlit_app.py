@@ -83,6 +83,16 @@ def _set_auth_state(user_id: int, username: str) -> None:
 def _logout() -> None:
     st.session_state.pop("auth", None)
 
+def _sync_text_from_select(*, select_key: str, text_key: str) -> None:
+    """
+    selectbox で選んだ値を text_input 側へ同期する。
+    - これにより「プルダウンから選ぶ」→「同じ欄をクリックして文字入力で上書き」が可能になる。
+    """
+    v = st.session_state.get(select_key)
+    if isinstance(v, str):
+        # 空選択に戻した場合も入力欄を空に戻す（自然な挙動）
+        st.session_state[text_key] = v.strip()
+
 
 def _get_user(user_id: int):
     from django.contrib.auth import get_user_model
@@ -234,12 +244,42 @@ def _page_input(user) -> None:
     with col1:
         input_date = st.date_input("日付", value=date.today())
     with col2:
-        used_deck = st.selectbox("使用デッキ", options=(decks if decks else [""]), index=0)
-        if not decks:
-            used_deck = st.text_input("使用デッキ（自由入力）", value="")
+        st.caption("使用デッキ")
+        st.session_state.setdefault("input_used_deck_text", "")
+        st.selectbox(
+            "使用デッキ（候補）",
+            options=[""] + decks,
+            format_func=lambda x: x or "（候補から選択）",
+            key="input_used_deck_select",
+            label_visibility="collapsed",
+            on_change=_sync_text_from_select,
+            kwargs={"select_key": "input_used_deck_select", "text_key": "input_used_deck_text"},
+        )
+        used_deck = st.text_input(
+            "使用デッキ（入力）",
+            key="input_used_deck_text",
+            placeholder="ここに入力（上の候補を選ぶと自動入力されます）",
+            label_visibility="collapsed",
+        )
     with col3:
-        opp_options = [("", "（未選択）")] + [(str(d.id), d.name) for d in opp_decks]
-        opp_selected = st.selectbox("対面デッキ", options=opp_options, format_func=lambda x: x[1])
+        st.caption("対面デッキ")
+        opp_names = [d.name for d in opp_decks]
+        st.session_state.setdefault("input_opp_deck_text", "")
+        st.selectbox(
+            "対面デッキ（候補）",
+            options=[""] + opp_names,
+            format_func=lambda x: x or "（候補から選択 / 未選択）",
+            key="input_opp_deck_select",
+            label_visibility="collapsed",
+            on_change=_sync_text_from_select,
+            kwargs={"select_key": "input_opp_deck_select", "text_key": "input_opp_deck_text"},
+        )
+        opp_text = st.text_input(
+            "対面デッキ（入力）",
+            key="input_opp_deck_text",
+            placeholder="ここに入力（上の候補を選ぶと自動入力されます）",
+            label_visibility="collapsed",
+        )
 
     col4, col5 = st.columns(2)
     with col4:
@@ -250,18 +290,37 @@ def _page_input(user) -> None:
     note = st.text_area("備考", value="", height=120)
 
     if st.button("保存", type="primary", use_container_width=True):
-        opponent_deck_obj = None
-        if opp_selected and opp_selected[0]:
-            from dashbords.models import OpponentDeck
+        from dashbords.models import Deck, OpponentDeck
 
-            opponent_deck_obj = (
-                OpponentDeck.objects.filter(user=user, is_active=True, id=opp_selected[0]).first()
+        used_deck_name = (used_deck or "").strip()
+        opponent_deck_name = (opp_text or "").strip()
+
+        # --- 入力されたデッキ名がマスタに無い場合は追加（ユーザー範囲） ---
+        if used_deck_name:
+            deck_obj, created = Deck.objects.get_or_create(
+                user=user,
+                name=used_deck_name,
+                defaults={"is_active": True},
             )
+            if (not created) and (not bool(deck_obj.is_active)):
+                deck_obj.is_active = True
+                deck_obj.save(update_fields=["is_active"])
+
+        opponent_deck_obj = None
+        if opponent_deck_name:
+            opponent_deck_obj, created = OpponentDeck.objects.get_or_create(
+                user=user,
+                name=opponent_deck_name,
+                defaults={"is_active": True},
+            )
+            if (not created) and (not bool(opponent_deck_obj.is_active)):
+                opponent_deck_obj.is_active = True
+                opponent_deck_obj.save(update_fields=["is_active"])
 
         Result.objects.create(
             user=user,
             date=input_date,
-            used_deck=used_deck or "",
+            used_deck=used_deck_name,
             opponent_deck=opponent_deck_obj,
             play_order=play_order or "",
             match_result=match_result,
