@@ -670,7 +670,11 @@ def _page_analysis(user) -> None:
     st.divider()
     st.markdown("#### (使用デッキ × 対面デッキ) の集計")
     matchup_rows = (
-        qs.values("used_deck", "opponent_deck__name")
+        # opponent_deck が不明（未設定）のデータは「表示しない」
+        qs.filter(opponent_deck__isnull=False)
+        .exclude(opponent_deck__name__isnull=True)
+        .exclude(opponent_deck__name="")
+        .values("used_deck", "opponent_deck__name")
         .annotate(
             total=Count("id"),
             win=Count("id", filter=Q(match_result__in=["〇", "勝ち"])),
@@ -681,7 +685,9 @@ def _page_analysis(user) -> None:
     matchups = []
     for r in matchup_rows:
         used_deck = (r.get("used_deck") or "").strip() or "（未入力）"
-        opponent_deck = (r.get("opponent_deck__name") or "").strip() or "（不明）"
+        opponent_deck = (r.get("opponent_deck__name") or "").strip()
+        if not opponent_deck:
+            continue
         win = int(r.get("win") or 0)
         loss = int(r.get("loss") or 0)
         total = int(r.get("total") or 0)
