@@ -329,7 +329,8 @@ def _page_input(user) -> None:
     with col4:
         play_order = st.radio("先行/後攻", options=["先行", "後攻"], horizontal=True)
     with col5:
-        match_result = st.radio("勝敗", options=["〇", "×", "両敗"], horizontal=True)
+        # 表示は「勝ち/負け/引き分け」にして視認性を優先（保存時に〇/×/両敗へ正規化）
+        match_result = st.radio("勝敗", options=["勝ち", "負け", "引き分け"], horizontal=True)
 
     note = st.text_area("備考", value="", height=120)
 
