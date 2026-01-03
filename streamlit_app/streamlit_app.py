@@ -981,8 +981,6 @@ def main() -> None:
     st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide", initial_sidebar_state="expanded")
     _inject_global_css()
 
-    st.title("試合結果集計ツール")  
-
     auth = _get_auth_state()
     with st.sidebar:
         st.markdown("### サイドバー")
@@ -1006,6 +1004,7 @@ def main() -> None:
 
 
     if page == "ログイン":
+        st.title("試合結果集計ツール")
         if auth:
             st.info("すでにログイン済みです。")
         _login_ui()
