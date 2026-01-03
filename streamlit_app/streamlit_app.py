@@ -246,40 +246,52 @@ def _page_input(user) -> None:
     with col2:
         st.caption("使用デッキ")
         st.session_state.setdefault("input_used_deck_text", "")
-        st.selectbox(
-            "使用デッキ（候補）",
-            options=[""] + decks,
-            format_func=lambda x: x or "（候補から選択）",
-            key="input_used_deck_select",
-            label_visibility="collapsed",
-            on_change=_sync_text_from_select,
-            kwargs={"select_key": "input_used_deck_select", "text_key": "input_used_deck_text"},
-        )
-        used_deck = st.text_input(
-            "使用デッキ（入力）",
-            key="input_used_deck_text",
-            placeholder="ここに入力（上の候補を選ぶと自動入力されます）",
-            label_visibility="collapsed",
-        )
+        c2a, c2b = st.columns([5, 1])
+        with c2a:
+            used_deck = st.text_input(
+                "使用デッキ",
+                key="input_used_deck_text",
+                placeholder="ここに入力（候補からも選べます）",
+                label_visibility="collapsed",
+            )
+        with c2b:
+            with st.popover("候補", use_container_width=True):
+                st.selectbox(
+                    "使用デッキ（候補一覧）",
+                    options=[""] + decks,
+                    format_func=lambda x: x or "（未選択）",
+                    key="input_used_deck_select",
+                    on_change=_sync_text_from_select,
+                    kwargs={"select_key": "input_used_deck_select", "text_key": "input_used_deck_text"},
+                )
+                if st.button("クリア（使用デッキ）", use_container_width=True):
+                    st.session_state["input_used_deck_text"] = ""
+                    st.session_state["input_used_deck_select"] = ""
     with col3:
         st.caption("対面デッキ")
         opp_names = [d.name for d in opp_decks]
         st.session_state.setdefault("input_opp_deck_text", "")
-        st.selectbox(
-            "対面デッキ（候補）",
-            options=[""] + opp_names,
-            format_func=lambda x: x or "（候補から選択 / 未選択）",
-            key="input_opp_deck_select",
-            label_visibility="collapsed",
-            on_change=_sync_text_from_select,
-            kwargs={"select_key": "input_opp_deck_select", "text_key": "input_opp_deck_text"},
-        )
-        opp_text = st.text_input(
-            "対面デッキ（入力）",
-            key="input_opp_deck_text",
-            placeholder="ここに入力（上の候補を選ぶと自動入力されます）",
-            label_visibility="collapsed",
-        )
+        c3a, c3b = st.columns([5, 1])
+        with c3a:
+            opp_text = st.text_input(
+                "対面デッキ",
+                key="input_opp_deck_text",
+                placeholder="ここに入力（候補からも選べます / 未入力OK）",
+                label_visibility="collapsed",
+            )
+        with c3b:
+            with st.popover("候補", use_container_width=True):
+                st.selectbox(
+                    "対面デッキ（候補一覧）",
+                    options=[""] + opp_names,
+                    format_func=lambda x: x or "（未選択）",
+                    key="input_opp_deck_select",
+                    on_change=_sync_text_from_select,
+                    kwargs={"select_key": "input_opp_deck_select", "text_key": "input_opp_deck_text"},
+                )
+                if st.button("クリア（対面デッキ）", use_container_width=True):
+                    st.session_state["input_opp_deck_text"] = ""
+                    st.session_state["input_opp_deck_select"] = ""
 
     col4, col5 = st.columns(2)
     with col4:
