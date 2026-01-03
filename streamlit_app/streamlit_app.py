@@ -476,6 +476,16 @@ def _page_results(user) -> None:
         with c9:
             dir_ = st.selectbox("昇順/降順", options=["desc", "asc"], format_func=lambda x: "降順" if x == "desc" else "昇順")
 
+        c10, _, _ = st.columns(3)
+        with c10:
+            limit = st.selectbox(
+                "表示件数",
+                options=[10, 20, 50, 100, 200, 500, 2000],
+                index=0,  # デフォルト 10件
+                format_func=lambda x: f"{x}件",
+                key="filter_limit",
+            )
+
     filters = {
         "date_from": date_from,
         "date_to": date_to,
@@ -486,10 +496,12 @@ def _page_results(user) -> None:
         "q": q,
         "sort": sort,
         "dir": dir_,
+        "limit": limit,
     }
 
-    results = list(_results_queryset(user, filters)[:2000])
-    st.caption(f"表示件数: {len(results)}（最大2000件）")
+    limit_n = int(filters.get("limit") or 10)
+    results = list(_results_queryset(user, filters)[:limit_n])
+    st.caption(f"表示件数: {len(results)}（設定: {limit_n}件）")
 
     rows: list[dict[str, Any]] = []
     for r in results:
