@@ -173,9 +173,11 @@ def _login_ui() -> None:
             token_ok = token_in == setup_token_required
             st.caption("`SETUP_TOKEN` が設定されているため、入力が一致した場合のみ復元できます。")
 
+        # iPhone(Safari/Files) だと拡張子フィルタが原因で .sqlite3 が選べないことがあるため、
+        # ここは type 制限を外して「選べる」ことを優先し、アップロード後にSQLite判定する。
         uploaded_db = st.file_uploader(
             "db.sqlite3 を選択（または db.sqlite3 を含むZIP）",
-            type=["sqlite3", "db", "sqlite", "zip"],
+            type=None,
             key="upload_sqlite_db",
         )
         if st.button(
@@ -199,6 +201,12 @@ def _login_ui() -> None:
                         target_name = preferred[0] if preferred else candidates[0]
                         raw = z.read(target_name)
                         st.caption(f"ZIPから `{target_name}` を取り出しました。")
+                else:
+                    # SQLiteファイルか簡易チェック（誤って別ファイルを選んだ場合の保険）
+                    # SQLite header: b"SQLite format 3\\x00"
+                    if not raw.startswith(b"SQLite format 3\x00"):
+                        st.error("SQLiteファイルではない可能性があります。db.sqlite3（またはZIP）を選択してください。")
+                        st.stop()
 
                 with open(db_path, "wb") as f:
                     f.write(raw)
