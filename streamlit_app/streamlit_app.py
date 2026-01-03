@@ -269,68 +269,68 @@ def _page_input(user) -> None:
     decks = _active_decks(user)
     opp_decks = _active_opponent_decks(user)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        input_date = st.date_input("日付", value=date.today())
-    with col2:
-        st.caption("使用デッキ")
-        # 使用デッキのみ「前回入力値」を初期値として入れる（初回表示時のみ）
-        if "input_used_deck_text" not in st.session_state:
-            last_used = (
-                Result.objects.filter(user=user)
-                .exclude(used_deck="")
-                .order_by("-date", "-id")
-                .values_list("used_deck", flat=True)
-                .first()
-            )
-            st.session_state["input_used_deck_text"] = (last_used or "")
-        c2a, c2b = st.columns([5, 2])
-        with c2a:
-            used_deck = st.text_input(
-                "使用デッキ",
-                key="input_used_deck_text",
-                placeholder="ここに入力（候補からも選べます）",
-                label_visibility="collapsed",
-            )
-        with c2b:
-            st.selectbox(
-                "候補",
-                options=[""] + decks,
-                format_func=lambda x: x or "（未選択）",
-                key="input_used_deck_select",
-                on_change=_sync_text_from_select,
-                kwargs={"select_key": "input_used_deck_select", "text_key": "input_used_deck_text"},
-                label_visibility="collapsed",
-            )
-    with col3:
-        st.caption("対面デッキ")
-        opp_names = [d.name for d in opp_decks]
-        st.session_state.setdefault("input_opp_deck_text", "")
-        c3a, c3b = st.columns([5, 2])
-        with c3a:
-            opp_text = st.text_input(
-                "対面デッキ",
-                key="input_opp_deck_text",
-                placeholder="ここに入力（候補からも選べます / 未入力OK）",
-                label_visibility="collapsed",
-            )
-        with c3b:
-            st.selectbox(
-                "候補",
-                options=[""] + opp_names,
-                format_func=lambda x: x or "（未選択）",
-                key="input_opp_deck_select",
-                on_change=_sync_text_from_select,
-                kwargs={"select_key": "input_opp_deck_select", "text_key": "input_opp_deck_text"},
-                label_visibility="collapsed",
-            )
+    # 日付 / 使用デッキ / 対面デッキ は縦に並べる
+    input_date = st.date_input("日付", value=date.today())
+
+    st.caption("使用デッキ")
+    # 使用デッキのみ「前回入力値」を初期値として入れる（初回表示時のみ）
+    if "input_used_deck_text" not in st.session_state:
+        last_used = (
+            Result.objects.filter(user=user)
+            .exclude(used_deck="")
+            .order_by("-date", "-id")
+            .values_list("used_deck", flat=True)
+            .first()
+        )
+        st.session_state["input_used_deck_text"] = (last_used or "")
+    c2a, c2b = st.columns([5, 2])
+    with c2a:
+        used_deck = st.text_input(
+            "使用デッキ",
+            key="input_used_deck_text",
+            placeholder="ここに入力（候補からも選べます）",
+            label_visibility="collapsed",
+        )
+    with c2b:
+        st.selectbox(
+            "候補",
+            options=[""] + decks,
+            format_func=lambda x: x or "（未選択）",
+            key="input_used_deck_select",
+            on_change=_sync_text_from_select,
+            kwargs={"select_key": "input_used_deck_select", "text_key": "input_used_deck_text"},
+            label_visibility="collapsed",
+        )
+
+    st.caption("対面デッキ")
+    opp_names = [d.name for d in opp_decks]
+    st.session_state.setdefault("input_opp_deck_text", "")
+    c3a, c3b = st.columns([5, 2])
+    with c3a:
+        opp_text = st.text_input(
+            "対面デッキ",
+            key="input_opp_deck_text",
+            placeholder="ここに入力（候補からも選べます / 未入力OK）",
+            label_visibility="collapsed",
+        )
+    with c3b:
+        st.selectbox(
+            "候補",
+            options=[""] + opp_names,
+            format_func=lambda x: x or "（未選択）",
+            key="input_opp_deck_select",
+            on_change=_sync_text_from_select,
+            kwargs={"select_key": "input_opp_deck_select", "text_key": "input_opp_deck_text"},
+            label_visibility="collapsed",
+        )
 
     col4, col5 = st.columns(2)
     with col4:
-        play_order = st.radio("先行/後攻", options=["先行", "後攻"], horizontal=True)
+        # 選択肢は縦並び（項目自体は左右カラムで横並びOK）
+        play_order = st.radio("先行/後攻", options=["先行", "後攻"], horizontal=False)
     with col5:
         # 表示は「勝ち/負け/引き分け」にして視認性を優先（保存時に〇/×/両敗へ正規化）
-        match_result = st.radio("勝敗", options=["勝ち", "負け", "引き分け"], horizontal=True)
+        match_result = st.radio("勝敗", options=["勝ち", "負け", "引き分け"], horizontal=False)
 
     note = st.text_area("備考", value="", height=120)
 
