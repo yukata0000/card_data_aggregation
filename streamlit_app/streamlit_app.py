@@ -123,6 +123,17 @@ def _match_result_values_for_filter(value: str) -> list[str]:
     return [v] if v else []
 
 
+def _sort_key_deck_label(label: str) -> tuple[int, str]:
+    """
+    表示用のデッキ名ソートキー。
+    「（未入力）」「（不明）」のような特別ラベルは末尾に寄せる。
+    """
+    v = (label or "").strip()
+    if v in {"（未入力）", "（不明）"}:
+        return (1, v)
+    return (0, v)
+
+
 def _get_user(user_id: int):
     from django.contrib.auth import get_user_model
 
@@ -609,7 +620,86 @@ def _page_analysis(user) -> None:
         html = df.to_html(index=False, escape=True)
         st.markdown(f'<div class="scroll-table">{html}</div>', unsafe_allow_html=True)
 
-    qs = Result.objects.filter(user=user)
+    # --- フィルター（表示/集計対象を絞る） ---
+    with st.expander("フィルター（分析）", expanded=False):
+        f1, f2, f3 = st.columns(3)
+        with f1:
+            a_date_from = st.date_input("開始日（任意）", value=None, key="analysis_date_from")
+        with f2:
+            a_date_to = st.date_input("終了日（任意）", value=None, key="analysis_date_to")
+        with f3:
+            a_q = st.text_input("キーワード（備考/デッキ名）", value="", key="analysis_q")
+
+        # 候補（使用デッキ）
+        used_values = list(
+            Result.objects.filter(user=user).exclude(used_deck="").values_list("used_deck", flat=True).distinct()
+        )
+        used_values = sorted({*(v.strip() for v in used_values if v is not None)}, key=lambda x: x)
+
+        # 候補（対面デッキ）
+        opp_values = list(
+            Result.objects.filter(user=user)
+            .select_related("opponent_deck")
+            .exclude(opponent_deck__isnull=True)
+            .exclude(opponent_deck__name__isnull=True)
+            .exclude(opponent_deck__name="")
+            .values_list("opponent_deck__name", flat=True)
+            .distinct()
+        )
+        opp_values = sorted({*(v.strip() for v in opp_values if v is not None)}, key=lambda x: x)
+
+        f4, f5, f6 = st.columns(3)
+        with f4:
+            a_used_deck = st.selectbox(
+                "使用デッキ",
+                options=[""] + used_values,
+                format_func=lambda x: x or "（全て）",
+                key="analysis_used_deck",
+            )
+        with f5:
+            a_opp_deck = st.selectbox(
+                "対面デッキ",
+                options=["", "__NONE__"] + opp_values,
+                format_func=lambda x: "（全て）" if x == "" else ("（未入力）" if x == "__NONE__" else x),
+                key="analysis_opp_deck",
+            )
+        with f6:
+            a_play_order = st.selectbox(
+                "先行/後攻",
+                options=["", "先行", "後攻"],
+                format_func=lambda x: x or "（全て）",
+                key="analysis_play_order",
+            )
+
+        f7, _, _ = st.columns(3)
+        with f7:
+            a_match_result = st.selectbox(
+                "勝敗",
+                options=["", "〇", "×", "両敗"],
+                format_func=lambda x: x or "（全て）",
+                key="analysis_match_result",
+            )
+
+    qs = Result.objects.filter(user=user).select_related("opponent_deck")
+    if a_date_from:
+        qs = qs.filter(date__gte=a_date_from)
+    if a_date_to:
+        qs = qs.filter(date__lte=a_date_to)
+    if (a_used_deck or "").strip():
+        qs = qs.filter(used_deck=(a_used_deck or "").strip())
+    if a_opp_deck == "__NONE__":
+        qs = qs.filter(Q(opponent_deck__isnull=True) | Q(opponent_deck__name__isnull=True) | Q(opponent_deck__name=""))
+    elif (a_opp_deck or "").strip():
+        qs = qs.filter(opponent_deck__name=(a_opp_deck or "").strip())
+    if (a_play_order or "").strip():
+        qs = qs.filter(play_order=(a_play_order or "").strip())
+    if (a_match_result or "").strip():
+        mr_values = _match_result_values_for_filter(a_match_result)
+        if mr_values:
+            qs = qs.filter(match_result__in=mr_values)
+    if (a_q or "").strip():
+        q = (a_q or "").strip()
+        qs = qs.filter(Q(note__icontains=q) | Q(used_deck__icontains=q) | Q(opponent_deck__name__icontains=q))
 
     total_matches = qs.count()
     overall_win = qs.filter(match_result__in=["〇", "勝ち"]).count()
@@ -657,7 +747,7 @@ def _page_analysis(user) -> None:
             win=Count("id", filter=Q(match_result__in=["〇", "勝ち"])),
             loss=Count("id", filter=Q(match_result__in=["×", "負け"])),
         )
-        .order_by("-total", "used_deck")
+        .order_by("used_deck")
     )
     per_deck = []
     for r in per_deck_rows:
@@ -678,6 +768,7 @@ def _page_analysis(user) -> None:
                 "win_rate": "-" if win_rate is None else f"{win_rate:.1f}%",
             }
         )
+    per_deck.sort(key=lambda x: _sort_key_deck_label(str(x.get("used_deck") or "")))
     _table_no_index(per_deck)
 
     st.divider()
@@ -693,7 +784,7 @@ def _page_analysis(user) -> None:
             win=Count("id", filter=Q(match_result__in=["〇", "勝ち"])),
             loss=Count("id", filter=Q(match_result__in=["×", "負け"])),
         )
-        .order_by("-total", "used_deck", "opponent_deck__name")
+        .order_by("used_deck", "opponent_deck__name")
     )
     matchups = []
     for r in matchup_rows:
@@ -718,6 +809,12 @@ def _page_analysis(user) -> None:
                 "win_rate": "-" if win_rate is None else f"{win_rate:.1f}%",
             }
         )
+    matchups.sort(
+        key=lambda x: (
+            _sort_key_deck_label(str(x.get("used_deck") or "")),
+            _sort_key_deck_label(str(x.get("opponent_deck") or "")),
+        )
+    )
     _table_no_index(matchups)
 
 
