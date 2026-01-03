@@ -607,7 +607,7 @@ def _page_results(user) -> None:
 
 
 def _page_analysis(user) -> None:
-    from dashbords.models import Result
+    from dashbords.models import Deck, Result
     from django.db.models import Count, Q
     import pandas as pd
 
@@ -622,16 +622,17 @@ def _page_analysis(user) -> None:
 
     # --- フィルター（表示/集計対象を絞る） ---
     with st.expander("フィルター（分析）", expanded=False):
-        f1, f2 = st.columns(2)
-        with f1:
-            a_q = st.text_input("キーワード（備考/デッキ名）", value="", key="analysis_q")
-        with f2:
-            a_play_order = st.selectbox(
-                "先行/後攻",
-                options=["", "先行", "後攻"],
-                format_func=lambda x: x or "（全て）",
-                key="analysis_play_order",
-            )
+        # 表示順（指定）:
+        # 使用デッキ → 対面デッキ（（未入力）可） → 先行/後攻 → 勝敗 → キーワード
+
+        # 候補（使用デッキ）
+        used_deck_values_from_master = list(
+            Deck.objects.filter(user=user, is_active=True).order_by("name", "id").values_list("name", flat=True)
+        )
+        used_deck_values_from_results = list(
+            Result.objects.filter(user=user).exclude(used_deck="").values_list("used_deck", flat=True).distinct()
+        )
+        used_values = sorted({*(v.strip() for v in used_deck_values_from_master if v), *(v.strip() for v in used_deck_values_from_results if v)})
 
         # 候補（対面デッキ）
         opp_values = list(
@@ -645,15 +646,31 @@ def _page_analysis(user) -> None:
         )
         opp_values = sorted({*(v.strip() for v in opp_values if v is not None)}, key=lambda x: x)
 
-        f3, f4 = st.columns(2)
-        with f3:
+        r1c1, r1c2 = st.columns(2)
+        with r1c1:
+            a_used_deck = st.selectbox(
+                "使用デッキ",
+                options=[""] + used_values,
+                format_func=lambda x: x or "（全て）",
+                key="analysis_used_deck",
+            )
+        with r1c2:
             a_opp_deck = st.selectbox(
                 "対面デッキ",
                 options=["", "__NONE__"] + opp_values,
                 format_func=lambda x: "（全て）" if x == "" else ("（未入力）" if x == "__NONE__" else x),
                 key="analysis_opp_deck",
             )
-        with f4:
+
+        r2c1, r2c2 = st.columns(2)
+        with r2c1:
+            a_play_order = st.selectbox(
+                "先行/後攻",
+                options=["", "先行", "後攻"],
+                format_func=lambda x: x or "（全て）",
+                key="analysis_play_order",
+            )
+        with r2c2:
             a_match_result = st.selectbox(
                 "勝敗",
                 options=["", "〇", "×", "両敗"],
@@ -661,7 +678,11 @@ def _page_analysis(user) -> None:
                 key="analysis_match_result",
             )
 
+        a_q = st.text_input("キーワード（備考/デッキ名）", value="", key="analysis_q")
+
     qs = Result.objects.filter(user=user).select_related("opponent_deck")
+    if (a_used_deck or "").strip():
+        qs = qs.filter(used_deck=(a_used_deck or "").strip())
     if a_opp_deck == "__NONE__":
         qs = qs.filter(Q(opponent_deck__isnull=True) | Q(opponent_deck__name__isnull=True) | Q(opponent_deck__name=""))
     elif (a_opp_deck or "").strip():
