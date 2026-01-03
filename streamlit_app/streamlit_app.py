@@ -339,6 +339,7 @@ def _page_input(user) -> None:
 
         used_deck_name = (used_deck or "").strip()
         opponent_deck_name = (opp_text or "").strip()
+        note_text = (note or "").strip()
 
         # --- 入力されたデッキ名がマスタに無い場合は追加（ユーザー範囲） ---
         if used_deck_name:
@@ -361,6 +362,10 @@ def _page_input(user) -> None:
             if (not created) and (not bool(opponent_deck_obj.is_active)):
                 opponent_deck_obj.is_active = True
                 opponent_deck_obj.save(update_fields=["is_active"])
+        else:
+            # 対面デッキ未入力＝不戦勝扱い
+            if "不戦勝" not in note_text:
+                note_text = f"{note_text}\n不戦勝".strip() if note_text else "不戦勝"
 
         Result.objects.create(
             user=user,
@@ -368,8 +373,8 @@ def _page_input(user) -> None:
             used_deck=used_deck_name,
             opponent_deck=opponent_deck_obj,
             play_order=play_order or "",
-            match_result=_normalize_match_result(match_result),
-            note=note or "",
+            match_result=("〇" if not opponent_deck_name else _normalize_match_result(match_result)),
+            note=note_text,
         )
         st.success("保存しました。")
 
