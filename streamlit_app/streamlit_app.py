@@ -525,7 +525,8 @@ def _page_results(user) -> None:
         # チェックボックス（selected）だけ操作可能にして、それ以外は編集不可＝静的表示に寄せる
         disabled=["id", "date", "used_deck", "opponent_deck", "play_order", "match_result", "note"],
         num_rows="fixed",
-        height=600,
+        # 件数が少ない時に余計な空白行（空白領域）が見えないよう、高さを件数に合わせる
+        height=min(600, 90 + (len(rows) * 35)),
         column_config={
             "selected": st.column_config.CheckboxColumn("選択"),
             # id は内部的に選択/編集/削除に使うが、表には表示しない
