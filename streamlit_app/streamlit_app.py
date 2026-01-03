@@ -9,6 +9,7 @@ import zipfile
 from typing import Any, Optional
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Streamlit Cloud では `streamlit_app/streamlit_app.py` をディレクトリ直下として実行するため、
 # `streamlit_app.django_bootstrap` のようなパッケージ参照だと同名ファイル解決の衝突が起きうる。
@@ -56,6 +57,79 @@ div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
 </style>
 """,
         unsafe_allow_html=True,
+    )
+
+
+def _inject_sidebar_auto_close_js() -> None:
+    """
+    サイドバーが展開中のとき:
+    - 画面遷移（ページ選択の st.radio）以外をサイドバー内でクリックしたら閉じる
+    - 既存の「<<」ボタン（サイドバーを閉じるUI）はそのまま使用する
+
+    StreamlitはPython側からサイドバー開閉を制御できないため、DOM上の既存ボタンをクリックする。
+    """
+    components.html(
+        """
+<script>
+(() => {
+  function findSidebar() {
+    return document.querySelector('section[data-testid="stSidebar"]');
+  }
+
+  function findCollapseButton() {
+    // Streamlitのバージョン差を吸収するため複数候補
+    return (
+      document.querySelector('button[aria-label="Collapse sidebar"]') ||
+      document.querySelector('button[title="Collapse sidebar"]') ||
+      document.querySelector('button[data-testid="stSidebarCollapseButton"]') ||
+      null
+    );
+  }
+
+  function findPageNavRadio(sidebar) {
+    // サイドバー内のラジオのうち、テキストに「ページ」を含むものを「画面遷移」とみなす
+    const radios = sidebar.querySelectorAll('div[data-testid="stRadio"]');
+    for (const r of radios) {
+      const text = (r.innerText || "").trim();
+      if (text.includes("ページ")) return r;
+    }
+    return null;
+  }
+
+  function install() {
+    const sidebar = findSidebar();
+    if (!sidebar) return;
+
+    // 多重登録防止（DOM差し替え後は別要素になるため、その場合は再インストールされる）
+    if (sidebar.__autoCloseInstalled) return;
+    sidebar.__autoCloseInstalled = true;
+
+    sidebar.addEventListener('click', (e) => {
+      const sb = findSidebar();
+      if (!sb) return;
+
+      // 「<<」などサイドバー開閉ボタンを直接押した場合は何もしない
+      const collapseBtn = findCollapseButton();
+      if (collapseBtn && collapseBtn.contains(e.target)) return;
+
+      // 画面遷移（ページ選択）は閉じない
+      const pageNav = findPageNavRadio(sb);
+      if (pageNav && pageNav.contains(e.target)) return;
+
+      // それ以外は閉じる（展開中のみボタンが存在する想定）
+      if (collapseBtn) collapseBtn.click();
+    }, true);
+  }
+
+  install();
+  // StreamlitはDOM差し替えが起きるため、監視して再インストールする
+  const obs = new MutationObserver(() => install());
+  obs.observe(document.documentElement, { childList: true, subtree: true });
+})();
+</script>
+        """,
+        height=0,
+        width=0,
     )
 
 
@@ -1105,6 +1179,7 @@ def _page_backup_restore(user) -> None:
 def main() -> None:
     st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide", initial_sidebar_state="expanded")
     _inject_global_css()
+    _inject_sidebar_auto_close_js()
 
     auth = _get_auth_state()
     with st.sidebar:
