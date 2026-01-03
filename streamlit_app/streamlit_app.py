@@ -94,6 +94,35 @@ def _sync_text_from_select(*, select_key: str, text_key: str) -> None:
         st.session_state[text_key] = v.strip()
 
 
+def _normalize_match_result(value: str) -> str:
+    """
+    旧表記（勝ち/負け/引き分け）を新表記（〇/×/両敗）に寄せる。
+    DBに混在していても表示/集計が崩れないようにする。
+    """
+    v = (value or "").strip()
+    if v == "勝ち":
+        return "〇"
+    if v == "負け":
+        return "×"
+    if v == "引き分け":
+        return "両敗"
+    return v
+
+
+def _match_result_values_for_filter(value: str) -> list[str]:
+    """
+    フィルタ用：新表記を選んだ場合も旧表記を含めて検索できるようにする。
+    """
+    v = (value or "").strip()
+    if v == "〇":
+        return ["〇", "勝ち"]
+    if v == "×":
+        return ["×", "負け"]
+    if v == "両敗":
+        return ["両敗", "引き分け"]
+    return [v] if v else []
+
+
 def _get_user(user_id: int):
     from django.contrib.auth import get_user_model
 
@@ -245,7 +274,16 @@ def _page_input(user) -> None:
         input_date = st.date_input("日付", value=date.today())
     with col2:
         st.caption("使用デッキ")
-        st.session_state.setdefault("input_used_deck_text", "")
+        # 使用デッキのみ「前回入力値」を初期値として入れる（初回表示時のみ）
+        if "input_used_deck_text" not in st.session_state:
+            last_used = (
+                Result.objects.filter(user=user)
+                .exclude(used_deck="")
+                .order_by("-date", "-id")
+                .values_list("used_deck", flat=True)
+                .first()
+            )
+            st.session_state["input_used_deck_text"] = (last_used or "")
         c2a, c2b = st.columns([5, 2])
         with c2a:
             used_deck = st.text_input(
@@ -291,7 +329,7 @@ def _page_input(user) -> None:
     with col4:
         play_order = st.radio("先行/後攻", options=["先行", "後攻"], horizontal=True)
     with col5:
-        match_result = st.radio("勝敗", options=["勝ち", "負け", "引き分け"], horizontal=True)
+        match_result = st.radio("勝敗", options=["〇", "×", "両敗"], horizontal=True)
 
     note = st.text_area("備考", value="", height=120)
 
@@ -329,7 +367,7 @@ def _page_input(user) -> None:
             used_deck=used_deck_name,
             opponent_deck=opponent_deck_obj,
             play_order=play_order or "",
-            match_result=match_result,
+            match_result=_normalize_match_result(match_result),
             note=note or "",
         )
         st.success("保存しました。")
@@ -360,7 +398,9 @@ def _results_queryset(user, filters: dict[str, Any]):
     if play_order:
         qs = qs.filter(play_order=play_order)
     if match_result:
-        qs = qs.filter(match_result=match_result)
+        mr_values = _match_result_values_for_filter(match_result)
+        if mr_values:
+            qs = qs.filter(match_result__in=mr_values)
     if q:
         qs = qs.filter(Q(note__icontains=q) | Q(used_deck__icontains=q) | Q(opponent_deck__name__icontains=q))
 
@@ -455,7 +495,7 @@ def _page_results(user) -> None:
                 "used_deck": r.used_deck,
                 "opponent_deck": (r.opponent_deck.name if r.opponent_deck else ""),
                 "play_order": r.play_order,
-                "match_result": r.match_result,
+                "match_result": _normalize_match_result(r.match_result),
                 "note": r.note,
             }
         )
@@ -513,7 +553,12 @@ def _page_results(user) -> None:
                         key="edit_opponent_deck",
                     )
                     ed_play = st.selectbox("先行/後攻", options=["", "先行", "後攻"], index=(1 if target.play_order == "先行" else 2 if target.play_order == "後攻" else 0))
-                    ed_result = st.selectbox("勝敗", options=["〇", "×", "両敗"], index=(0 if target.match_result == "〇" else 1 if target.match_result == "×" else 2))
+                    normalized_target_result = _normalize_match_result(target.match_result)
+                    ed_result = st.selectbox(
+                        "勝敗",
+                        options=["〇", "×", "両敗"],
+                        index=(0 if normalized_target_result == "〇" else 1 if normalized_target_result == "×" else 2),
+                    )
                     ed_note = st.text_area("備考", value=target.note, height=120, key="edit_note")
 
                     if st.button("更新", type="primary", use_container_width=True, key="edit_submit"):
@@ -524,7 +569,7 @@ def _page_results(user) -> None:
                         target.used_deck = ed_used_deck or ""
                         target.opponent_deck = opponent_deck_obj
                         target.play_order = ed_play or ""
-                        target.match_result = ed_result
+                        target.match_result = _normalize_match_result(ed_result)
                         target.note = ed_note or ""
                         target.save()
                         st.success("更新しました。")
@@ -548,8 +593,8 @@ def _page_analysis(user) -> None:
     qs = Result.objects.filter(user=user)
 
     total_matches = qs.count()
-    overall_win = qs.filter(match_result="〇").count()
-    overall_loss = qs.filter(match_result="×").count()
+    overall_win = qs.filter(match_result__in=["〇", "勝ち"]).count()
+    overall_loss = qs.filter(match_result__in=["×", "負け"]).count()
     overall_other = total_matches - overall_win - overall_loss
     overall_decided = overall_win + overall_loss
     overall_win_rate = ((overall_win / overall_decided) * 100.0) if overall_decided else None
@@ -565,8 +610,8 @@ def _page_analysis(user) -> None:
     play_order_summary = []
     for label in ["先行", "後攻"]:
         po_total = qs.filter(play_order=label).count()
-        po_win = qs.filter(play_order=label, match_result="〇").count()
-        po_loss = qs.filter(play_order=label, match_result="×").count()
+        po_win = qs.filter(play_order=label, match_result__in=["〇", "勝ち"]).count()
+        po_loss = qs.filter(play_order=label, match_result__in=["×", "負け"]).count()
         po_other = po_total - po_win - po_loss
         po_decided = po_win + po_loss
         po_win_rate = ((po_win / po_decided) * 100.0) if po_decided else None
@@ -590,8 +635,8 @@ def _page_analysis(user) -> None:
         qs.values("used_deck")
         .annotate(
             total=Count("id"),
-            win=Count("id", filter=Q(match_result="〇")),
-            loss=Count("id", filter=Q(match_result="×")),
+            win=Count("id", filter=Q(match_result__in=["〇", "勝ち"])),
+            loss=Count("id", filter=Q(match_result__in=["×", "負け"])),
         )
         .order_by("-total", "used_deck")
     )
@@ -622,8 +667,8 @@ def _page_analysis(user) -> None:
         qs.values("used_deck", "opponent_deck__name")
         .annotate(
             total=Count("id"),
-            win=Count("id", filter=Q(match_result="〇")),
-            loss=Count("id", filter=Q(match_result="×")),
+            win=Count("id", filter=Q(match_result__in=["〇", "勝ち"])),
+            loss=Count("id", filter=Q(match_result__in=["×", "負け"])),
         )
         .order_by("-total", "used_deck", "opponent_deck__name")
     )
