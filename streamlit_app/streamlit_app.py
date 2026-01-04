@@ -341,6 +341,7 @@ def _login_ui() -> None:
         with c1:
             token_in = st.text_input("SETUP_TOKEN", type="password", key="setup_token_input")
             st.session_state["setup_token_value"] = token_in
+            token_ok_now = token_in == setup_token_required
         with c2:
             uploaded_db = st.file_uploader(
                 "データを選択（db.sqlite3 または ZIP）",
@@ -352,7 +353,7 @@ def _login_ui() -> None:
             "データをアップロード",
             type="primary",
             use_container_width=True,
-            disabled=(uploaded_db is None or not token_ok),
+            disabled=(uploaded_db is None or not token_ok_now),
             key="upload_sqlite_db_submit",
         ):
             try:
@@ -396,7 +397,7 @@ def _login_ui() -> None:
             except Exception as e:  # noqa: BLE001
                 st.error(f"復元に失敗しました: {e}")
 
-        if not token_ok:
+        if not token_ok_now:
             st.info("SETUP_TOKEN を入力してください。")
         elif not db_exists:
             st.info("データをアップロードしてください。")
@@ -443,6 +444,8 @@ def _login_ui() -> None:
 
     if st.button("ログイン", type="primary", use_container_width=True, key="setup_login_submit"):
         _set_auth_state(target_user_id, target_username)
+        # ログイン直後にサイドバーのページ選択が無効値（"ログイン"）のままだと不整合になるため初期化
+        st.session_state["page_nav"] = "入力"
         # 再読み込み復元用Cookie（12時間）
         secret = _cookie_secret_bytes()
         if secret:
@@ -1369,6 +1372,8 @@ def main() -> None:
                 st.rerun()
         else:
             st.info("未ログイン")
+            # ログイン前に page_nav の古い値（例: "ログイン"）が残ると、ログイン直後に不整合になるためクリア
+            st.session_state.pop("page_nav", None)
 
         # 遷移先はサイドバーに表示（項目名をクリックすると遷移）
         if auth:
