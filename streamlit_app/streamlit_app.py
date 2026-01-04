@@ -492,9 +492,28 @@ def _ensure_user() -> Any:
     _require_django()
     user = _get_user(auth.user_id)
     if user is None:
+        # 再読み込み直後など、Django初期化/DB接続が古いキャッシュを掴んでいて
+        # ユーザー取得に失敗することがあるため、1回だけキャッシュをクリアして再試行する。
+        if not st.session_state.get("django_reinit_tried", False):
+            st.session_state["django_reinit_tried"] = True
+            try:
+                init_django.clear()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            try:
+                st.cache_resource.clear()
+                st.cache_data.clear()
+            except Exception:
+                pass
+            st.rerun()
+
         st.warning("ログイン情報が無効になりました。再ログインしてください。")
+        st.session_state.pop("django_reinit_tried", None)
         _logout()
         st.rerun()
+
+    # 正常にユーザーが取れたらフラグを消す
+    st.session_state.pop("django_reinit_tried", None)
     return user
 
 
