@@ -311,12 +311,13 @@ def _login_ui() -> None:
         st.warning("環境変数 `USE_POSTGRES=1` が設定されています。SQLite(db.sqlite3) でのログイン/復元は使えません。")
 
     setup_token_required = (os.getenv("SETUP_TOKEN") or "").strip()
-    token_in_cached = str(st.session_state.get("setup_token_input") or "")
     if not setup_token_required:
         st.error("環境変数 `SETUP_TOKEN` が未設定です。SETUP_TOKEN を設定してからログインしてください。")
         token_ok = False
     else:
-        token_ok = token_in_cached == setup_token_required
+        # トークン入力Widgetを非表示にしても token_ok が戻らないよう、別キーにキャッシュする
+        token_value = str(st.session_state.get("setup_token_value") or st.session_state.get("setup_token_input") or "")
+        token_ok = token_value == setup_token_required
 
     # 直前の復元が完了して rerun した場合に表示
     if st.session_state.pop("sqlite_restore_done", False):
@@ -333,70 +334,73 @@ def _login_ui() -> None:
             return
 
         if not setup_token_required:
-            st.stop()
+            return
 
-        if not token_ok:
-            st.markdown("#### 1) SETUP_TOKEN を入力")
-            st.text_input("SETUP_TOKEN", type="password", key="setup_token_input")
-            st.divider()
-            st.stop()
-
-        if not db_exists:
-            st.markdown("#### 2) データをアップロード")
-            st.caption("db.sqlite3（または db.sqlite3 を含むZIP）をアップロードしてください。")
+        st.markdown("#### 必要情報の入力")
+        c1, c2 = st.columns(2)
+        with c1:
+            token_in = st.text_input("SETUP_TOKEN", type="password", key="setup_token_input")
+            st.session_state["setup_token_value"] = token_in
+        with c2:
             uploaded_db = st.file_uploader(
-                "データを選択（またはデータを含むZIP）",
+                "データを選択（db.sqlite3 または ZIP）",
                 type=None,
                 key="upload_sqlite_db",
             )
-            if st.button(
-                "データをアップロード",
-                type="primary",
-                use_container_width=True,
-                disabled=(uploaded_db is None),
-                key="upload_sqlite_db_submit",
-            ):
-                try:
-                    raw = uploaded_db.getvalue()
-                    # ZIPの場合は中の db.sqlite3（または *.sqlite3 / *.db / *.sqlite）を探して取り出す
-                    if (uploaded_db.name or "").lower().endswith(".zip"):
-                        with zipfile.ZipFile(BytesIO(raw), mode="r") as z:
-                            candidates = [
-                                n for n in z.namelist() if n.lower().endswith(("db.sqlite3", ".sqlite3", ".db", ".sqlite"))
-                            ]
-                            if not candidates:
-                                st.error("ZIP内に db.sqlite3（または .sqlite3/.db/.sqlite）が見つかりません。")
-                                st.stop()
-                            preferred = [n for n in candidates if n.lower().endswith("db.sqlite3")]
-                            target_name = preferred[0] if preferred else candidates[0]
-                            raw = z.read(target_name)
-                            st.caption(f"ZIPから `{target_name}` を取り出しました。")
-                    else:
-                        # SQLiteファイルか簡易チェック（誤って別ファイルを選んだ場合の保険）
-                        # SQLite header: b"SQLite format 3\\x00"
-                        if not raw.startswith(b"SQLite format 3\x00"):
-                            st.error("SQLiteファイルではない可能性があります。db.sqlite3（またはZIP）を選択してください。")
+
+        if st.button(
+            "データをアップロード",
+            type="primary",
+            use_container_width=True,
+            disabled=(uploaded_db is None or not token_ok),
+            key="upload_sqlite_db_submit",
+        ):
+            try:
+                raw = uploaded_db.getvalue()
+                # ZIPの場合は中の db.sqlite3（または *.sqlite3 / *.db / *.sqlite）を探して取り出す
+                if (uploaded_db.name or "").lower().endswith(".zip"):
+                    with zipfile.ZipFile(BytesIO(raw), mode="r") as z:
+                        candidates = [
+                            n for n in z.namelist() if n.lower().endswith(("db.sqlite3", ".sqlite3", ".db", ".sqlite"))
+                        ]
+                        if not candidates:
+                            st.error("ZIP内に db.sqlite3（または .sqlite3/.db/.sqlite）が見つかりません。")
                             st.stop()
+                        preferred = [n for n in candidates if n.lower().endswith("db.sqlite3")]
+                        target_name = preferred[0] if preferred else candidates[0]
+                        raw = z.read(target_name)
+                        st.caption(f"ZIPから `{target_name}` を取り出しました。")
+                else:
+                    # SQLiteファイルか簡易チェック（誤って別ファイルを選んだ場合の保険）
+                    # SQLite header: b"SQLite format 3\\x00"
+                    if not raw.startswith(b"SQLite format 3\x00"):
+                        st.error("SQLiteファイルではない可能性があります。db.sqlite3（またはZIP）を選択してください。")
+                        st.stop()
 
-                    with open(db_path, "wb") as f:
-                        f.write(raw)
+                with open(db_path, "wb") as f:
+                    f.write(raw)
 
-                    # キャッシュが残ると古いDB接続のままになるため全消し
-                    try:
-                        init_django.clear()  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                    try:
-                        st.cache_resource.clear()
-                        st.cache_data.clear()
-                    except Exception:
-                        pass
+                # キャッシュが残ると古いDB接続のままになるため全消し
+                try:
+                    init_django.clear()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                try:
+                    st.cache_resource.clear()
+                    st.cache_data.clear()
+                except Exception:
+                    pass
 
-                    st.session_state["sqlite_restore_done"] = True
-                    st.rerun()
-                except Exception as e:  # noqa: BLE001
-                    st.error(f"復元に失敗しました: {e}")
-            st.stop()
+                st.session_state["sqlite_restore_done"] = True
+                st.rerun()
+            except Exception as e:  # noqa: BLE001
+                st.error(f"復元に失敗しました: {e}")
+
+        if not token_ok:
+            st.info("SETUP_TOKEN を入力してください。")
+        elif not db_exists:
+            st.info("データをアップロードしてください。")
+        return
 
     # --- ここから Django（復元済みDBのユーザー情報を読む） ---
     _require_django()
