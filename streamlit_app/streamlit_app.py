@@ -507,7 +507,7 @@ def _page_input(user) -> None:
         used_deck = st.text_input(
             "使用デッキ",
             key="input_used_deck_text",
-            placeholder="ここに入力（候補からも選べます）",
+            placeholder="使用デッキ選択（候補外は直接入力）",
             label_visibility="collapsed",
         )
     with c2b:
@@ -518,6 +518,7 @@ def _page_input(user) -> None:
             max_selections=1,
             format_func=lambda x: x or "（未選択）",
             key="input_used_deck_select_ms",
+            placeholder="デッキリスト",
             on_change=_sync_text_from_multiselect,
             kwargs={"select_key": "input_used_deck_select_ms", "text_key": "input_used_deck_text"},
             label_visibility="collapsed",
@@ -531,7 +532,7 @@ def _page_input(user) -> None:
         opp_text = st.text_input(
             "対面デッキ",
             key="input_opp_deck_text",
-            placeholder="ここに入力（候補からも選べます / 未入力OK）",
+            placeholder="対面デッキ選択（候補外は直接入力）",
             label_visibility="collapsed",
         )
     with c3b:
@@ -542,6 +543,7 @@ def _page_input(user) -> None:
             max_selections=1,
             format_func=lambda x: x or "（未選択）",
             key="input_opp_deck_select_ms",
+            placeholder="デッキリスト",
             on_change=_sync_text_from_multiselect,
             kwargs={"select_key": "input_opp_deck_select_ms", "text_key": "input_opp_deck_text"},
             label_visibility="collapsed",
@@ -681,6 +683,7 @@ def _page_results(user) -> None:
                 max_selections=1,
                 format_func=lambda x: x or "（全て）",
                 key="filter_used_deck_ms",
+                placeholder="デッキリスト",
             )
             used_deck = (used_deck_ms[0] if used_deck_ms else "")
         with c5:
@@ -691,6 +694,7 @@ def _page_results(user) -> None:
                 max_selections=1,
                 format_func=lambda x: x[1],
                 key="filter_opponent_deck_ms",
+                placeholder="デッキリスト",
             )
             opponent_deck = (opponent_deck_ms[0][0] if opponent_deck_ms else "")
         with c6:
@@ -810,6 +814,7 @@ def _page_results(user) -> None:
                         max_selections=1,
                         format_func=lambda x: x[1],
                         key="edit_opponent_deck_ms",
+                        placeholder="デッキリスト",
                     )
                     ed_opp = (ed_opp_ms[0] if ed_opp_ms else ("", "（未選択）"))
                     ed_play = st.selectbox("先行/後攻", options=["", "先行", "後攻"], index=(1 if target.play_order == "先行" else 2 if target.play_order == "後攻" else 0))
@@ -885,6 +890,7 @@ def _page_analysis(user) -> None:
                 max_selections=1,
                 format_func=lambda x: x or "（全て）",
                 key="analysis_used_deck_ms",
+                placeholder="デッキリスト",
             )
             a_used_deck = (a_used_deck_ms[0] if a_used_deck_ms else "")
         with r1c2:
@@ -895,6 +901,7 @@ def _page_analysis(user) -> None:
                 max_selections=1,
                 format_func=lambda x: "（全て）" if x == "" else ("（未入力）" if x == "__NONE__" else x),
                 key="analysis_opp_deck_ms",
+                placeholder="デッキリスト",
             )
             a_opp_deck = (a_opp_deck_ms[0] if a_opp_deck_ms else "")
 
