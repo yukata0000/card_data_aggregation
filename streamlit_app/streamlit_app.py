@@ -501,15 +501,17 @@ def _page_input(user) -> None:
             label_visibility="collapsed",
         )
     with c2b:
-        st.selectbox(
-            "候補",
-            options=[""] + decks,
-            format_func=lambda x: x or "（未選択）",
-            key="input_used_deck_select",
-            on_change=_sync_text_from_select,
-            kwargs={"select_key": "input_used_deck_select", "text_key": "input_used_deck_text"},
-            label_visibility="collapsed",
-        )
+        # 候補は「表示3件 + スクロール」で見せる（selectboxは表示行数を制御できないため）
+        with st.container(height=120):
+            st.radio(
+                "候補",
+                options=[""] + decks,
+                format_func=lambda x: x or "（未選択）",
+                key="input_used_deck_select",
+                label_visibility="collapsed",
+                on_change=_sync_text_from_select,
+                kwargs={"select_key": "input_used_deck_select", "text_key": "input_used_deck_text"},
+            )
 
     st.caption("対面デッキ")
     opp_names = [d.name for d in opp_decks]
@@ -523,15 +525,17 @@ def _page_input(user) -> None:
             label_visibility="collapsed",
         )
     with c3b:
-        st.selectbox(
-            "候補",
-            options=[""] + opp_names,
-            format_func=lambda x: x or "（未選択）",
-            key="input_opp_deck_select",
-            on_change=_sync_text_from_select,
-            kwargs={"select_key": "input_opp_deck_select", "text_key": "input_opp_deck_text"},
-            label_visibility="collapsed",
-        )
+        # 候補は「表示3件 + スクロール」で見せる
+        with st.container(height=120):
+            st.radio(
+                "候補",
+                options=[""] + opp_names,
+                format_func=lambda x: x or "（未選択）",
+                key="input_opp_deck_select",
+                label_visibility="collapsed",
+                on_change=_sync_text_from_select,
+                kwargs={"select_key": "input_opp_deck_select", "text_key": "input_opp_deck_text"},
+            )
 
     col4, col5 = st.columns(2)
     with col4:
@@ -660,9 +664,21 @@ def _page_results(user) -> None:
 
         c4, c5, c6 = st.columns(3)
         with c4:
-            used_deck = st.selectbox("使用デッキ", options=[""] + used_deck_values, format_func=lambda x: x or "（全て）")
+            with st.container(height=120):
+                used_deck = st.radio(
+                    "使用デッキ",
+                    options=[""] + used_deck_values,
+                    format_func=lambda x: x or "（全て）",
+                    key="filter_used_deck_radio",
+                )
         with c5:
-            opponent_deck = st.selectbox("対面デッキ", options=opp_options, format_func=lambda x: x[1])[0]
+            with st.container(height=120):
+                opponent_deck = st.radio(
+                    "対面デッキ",
+                    options=opp_options,
+                    format_func=lambda x: x[1],
+                    key="filter_opponent_deck_radio",
+                )[0]
         with c6:
             play_order = st.selectbox("先行/後攻", options=["", "先行", "後攻"], format_func=lambda x: x or "（全て）")
 
@@ -773,13 +789,14 @@ def _page_results(user) -> None:
 
                     ed_date = st.date_input("日付", value=target.date, key="edit_date")
                     ed_used_deck = st.text_input("使用デッキ", value=target.used_deck, key="edit_used_deck")
-                    ed_opp = st.selectbox(
-                        "対面デッキ",
-                        options=opp_opts,
-                        format_func=lambda x: x[1],
-                        index=0,
-                        key="edit_opponent_deck",
-                    )
+                    with st.container(height=120):
+                        ed_opp = st.radio(
+                            "対面デッキ",
+                            options=opp_opts,
+                            format_func=lambda x: x[1],
+                            index=0,
+                            key="edit_opponent_deck_radio",
+                        )
                     ed_play = st.selectbox("先行/後攻", options=["", "先行", "後攻"], index=(1 if target.play_order == "先行" else 2 if target.play_order == "後攻" else 0))
                     normalized_target_result = _normalize_match_result(target.match_result)
                     ed_result = st.selectbox(
@@ -846,19 +863,21 @@ def _page_analysis(user) -> None:
 
         r1c1, r1c2 = st.columns(2)
         with r1c1:
-            a_used_deck = st.selectbox(
-                "使用デッキ",
-                options=[""] + used_values,
-                format_func=lambda x: x or "（全て）",
-                key="analysis_used_deck",
-            )
+            with st.container(height=120):
+                a_used_deck = st.radio(
+                    "使用デッキ",
+                    options=[""] + used_values,
+                    format_func=lambda x: x or "（全て）",
+                    key="analysis_used_deck_radio",
+                )
         with r1c2:
-            a_opp_deck = st.selectbox(
-                "対面デッキ",
-                options=["", "__NONE__"] + opp_values,
-                format_func=lambda x: "（全て）" if x == "" else ("（未入力）" if x == "__NONE__" else x),
-                key="analysis_opp_deck",
-            )
+            with st.container(height=120):
+                a_opp_deck = st.radio(
+                    "対面デッキ",
+                    options=["", "__NONE__"] + opp_values,
+                    format_func=lambda x: "（全て）" if x == "" else ("（未入力）" if x == "__NONE__" else x),
+                    key="analysis_opp_deck_radio",
+                )
 
         r2c1, r2c2 = st.columns(2)
         with r2c1:
