@@ -140,7 +140,7 @@ def _get_user(user_id: int):
 
 
 def _login_ui() -> None:
-    st.subheader("初期セットアップ（ログイン）")
+    st.subheader("ログイン")
 
     # 復元先パスを明示（Cloudでもここに書き込みます）
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -159,25 +159,19 @@ def _login_ui() -> None:
     else:
         token_in = st.text_input("SETUP_TOKEN", type="password", key="setup_token_input")
         token_ok = token_in == setup_token_required
-        st.caption("SETUP_TOKEN が一致した場合のみ、db.sqlite3 を使ってログインできます。")
 
     # 直前の復元が完了して rerun した場合に表示
     if st.session_state.pop("sqlite_restore_done", False):
-        st.success("db.sqlite3 を復元しました。")
+        st.success("データを読み込みました。")
 
-    st.markdown("#### SQLite(db.sqlite3) の準備")
-    st.caption(f"パス: `{db_path}`")
-    st.caption(f"現在の状態: {'存在します' if db_exists else '未作成'}")
-
-    # iPhone(Safari/Files) だと拡張子フィルタが原因で .sqlite3 が選べないことがあるため、
-    # ここは type 制限を外して「選べる」ことを優先し、アップロード後にSQLite判定する。
+    st.markdown("#### データの準備")
     uploaded_db = st.file_uploader(
-        "db.sqlite3 を選択（または db.sqlite3 を含むZIP）",
+        "データを選択（またはデータを含むZIP）",
         type=None,
         key="upload_sqlite_db",
     )
     if st.button(
-        "db.sqlite3 をアップロードしてログイン",
+        "データをアップロードしてログイン",
         type="primary",
         use_container_width=True,
         disabled=(uploaded_db is None or not token_ok or use_postgres_env),
@@ -224,16 +218,6 @@ def _login_ui() -> None:
             st.error(f"復元に失敗しました: {e}")
 
     st.divider()
-    st.markdown("#### ログイン（SETUP_TOKEN + db.sqlite3）")
-    if not db_exists:
-        st.info("ログインするには db.sqlite3 が必要です。上でアップロードしてください。")
-        return
-    if use_postgres_env:
-        st.info("USE_POSTGRES=1 のため、SQLiteでのログインはできません。")
-        return
-    if not token_ok:
-        st.info("SETUP_TOKEN を入力してください。")
-        return
 
     # ここから Django（復元済みDBのユーザー情報を読む）
     _require_django()
