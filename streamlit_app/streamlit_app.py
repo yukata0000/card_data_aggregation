@@ -3,10 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import os
+import time
+import json
+import hmac
+import hashlib
+import base64
 from io import BytesIO, StringIO
 import csv
 import zipfile
 from typing import Any, Optional
+from http.cookies import SimpleCookie
 
 import streamlit as st
 
@@ -20,6 +26,12 @@ from django_bootstrap import init_django
 class AuthState:
     user_id: int
     username: str
+
+
+AUTH_COOKIE_NAME = "da_auth"
+LAST_USER_COOKIE_NAME = "da_last_user"
+AUTH_TTL_SECONDS = 12 * 60 * 60  # 12時間
+LAST_USER_TTL_SECONDS = 30 * 24 * 60 * 60  # 30日（ユーザー選択の利便性用。認証とは無関係）
 
 
 def _inject_global_css() -> None:
@@ -58,6 +70,141 @@ div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
         unsafe_allow_html=True,
     )
 
+
+def _get_sqlite_db_path() -> str:
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    return os.path.join(repo_root, "db.sqlite3")
+
+
+def _cookie_secret_bytes() -> Optional[bytes]:
+    """
+    署名用の秘密鍵。
+    追加の環境変数を増やさず、SETUP_TOKEN を秘密鍵として流用する。
+    """
+    s = (os.getenv("SETUP_TOKEN") or "").strip()
+    return s.encode("utf-8") if s else None
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(raw: str) -> bytes:
+    pad = "=" * ((4 - (len(raw) % 4)) % 4)
+    return base64.urlsafe_b64decode((raw + pad).encode("ascii"))
+
+
+def _sign_payload(payload_json: bytes, secret: bytes) -> str:
+    sig = hmac.new(secret, payload_json, hashlib.sha256).digest()
+    return _b64url_encode(sig)
+
+
+def _encode_auth_token(payload: dict[str, Any], secret: bytes) -> str:
+    payload_json = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return f"{_b64url_encode(payload_json)}.{_sign_payload(payload_json, secret)}"
+
+
+def _decode_auth_token(token: str, secret: bytes) -> Optional[dict[str, Any]]:
+    try:
+        p, s = token.split(".", 1)
+        payload_json = _b64url_decode(p)
+        expected = _sign_payload(payload_json, secret)
+        if not hmac.compare_digest(expected, s):
+            return None
+        payload = json.loads(payload_json.decode("utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def _get_cookie_value(name: str) -> Optional[str]:
+    """
+    Streamlitのリクエストヘッダから Cookie を読む。
+    取得できない環境の場合は None。
+    """
+    try:
+        headers = getattr(getattr(st, "context", None), "headers", None)
+        if not headers:
+            return None
+        cookie_header = headers.get("cookie") or headers.get("Cookie")
+        if not cookie_header:
+            return None
+        c = SimpleCookie()
+        c.load(cookie_header)
+        morsel = c.get(name)
+        return morsel.value if morsel else None
+    except Exception:
+        return None
+
+
+def _set_cookie_js(name: str, value: str, *, max_age_seconds: int) -> None:
+    # JSでCookieをセット（Python側からレスポンスヘッダを操作できないため）
+    safe_value = value.replace("\\", "\\\\").replace('"', '\\"')
+    st.markdown(
+        f"""
+<script>
+document.cookie = "{name}={safe_value}; path=/; max-age={int(max_age_seconds)}; samesite=lax";
+</script>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _delete_cookie_js(name: str) -> None:
+    st.markdown(
+        f"""
+<script>
+document.cookie = "{name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=lax";
+</script>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _restore_auth_from_cookie_if_possible() -> None:
+    """
+    再読み込み対策:
+    - session_state に auth が無い場合、署名付きCookieから復元する
+    - 有効期限(12h)内のみ
+    - db.sqlite3 のfingerprint（mtime/size）が一致する場合のみ
+    """
+    if _get_auth_state() is not None:
+        return
+    secret = _cookie_secret_bytes()
+    if not secret:
+        return
+    token = _get_cookie_value(AUTH_COOKIE_NAME)
+    if not token:
+        return
+    payload = _decode_auth_token(token, secret)
+    if not payload:
+        return
+
+    exp = payload.get("exp")
+    if not isinstance(exp, (int, float)):
+        return
+    if time.time() > float(exp):
+        return
+
+    db_path = _get_sqlite_db_path()
+    if not os.path.exists(db_path):
+        return
+    try:
+        st_ = os.stat(db_path)
+    except Exception:
+        return
+    expected_fp = {"size": int(st_.st_size), "mtime": int(st_.st_mtime)}
+    if payload.get("db_fp") != expected_fp:
+        return
+
+    uid = payload.get("user_id")
+    uname = payload.get("username")
+    if not isinstance(uid, int) or not isinstance(uname, str) or not uname:
+        return
+    _set_auth_state(uid, uname)
+
 def _require_django() -> None:
     init_django()
 
@@ -80,6 +227,8 @@ def _set_auth_state(user_id: int, username: str) -> None:
 
 def _logout() -> None:
     st.session_state.pop("auth", None)
+    # 再読み込み後に復元されないようCookieも削除
+    _delete_cookie_js(AUTH_COOKIE_NAME)
 
 def _sync_text_from_select(*, select_key: str, text_key: str) -> None:
     """
@@ -143,8 +292,7 @@ def _login_ui() -> None:
     st.subheader("ログイン")
 
     # 復元先パスを明示（Cloudでもここに書き込みます）
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-    db_path = os.path.join(repo_root, "db.sqlite3")
+    db_path = _get_sqlite_db_path()
     db_exists = os.path.exists(db_path)
 
     # PostgreSQL設定が有効だと SQLite を書き換えても反映されないため注意喚起
@@ -220,6 +368,16 @@ def _login_ui() -> None:
     st.divider()
 
     # ここから Django（復元済みDBのユーザー情報を読む）
+    if not db_exists:
+        st.info("ログインするにはデータ（db.sqlite3）が必要です。上でアップロードしてください。")
+        return
+    if use_postgres_env:
+        st.info("USE_POSTGRES=1 のため、SQLiteでのログインはできません。")
+        return
+    if not token_ok:
+        st.info("SETUP_TOKEN を入力してください。")
+        return
+
     _require_django()
     from django.contrib.auth import get_user_model
 
@@ -235,12 +393,52 @@ def _login_ui() -> None:
         st.caption(f"ユーザー: {target_username}")
     else:
         opts = [(int(u["id"]), str(u["username"])) for u in users]
-        selected = st.selectbox("ユーザーを選択", options=opts, format_func=lambda x: x[1], key="setup_login_user_select")
+        last_uid_raw = _get_cookie_value(LAST_USER_COOKIE_NAME)
+        last_uid = None
+        try:
+            last_uid = int(last_uid_raw) if last_uid_raw is not None else None
+        except Exception:
+            last_uid = None
+        default_index = 0
+        if last_uid is not None:
+            for i, (uid, _) in enumerate(opts):
+                if uid == last_uid:
+                    default_index = i
+                    break
+
+        selected = st.selectbox(
+            "ユーザーを選択",
+            options=opts,
+            index=default_index,
+            format_func=lambda x: x[1],
+            key="setup_login_user_select",
+        )
         target_user_id = int(selected[0])
         target_username = str(selected[1])
 
     if st.button("ログイン", type="primary", use_container_width=True, key="setup_login_submit"):
         _set_auth_state(target_user_id, target_username)
+        # 再読み込み復元用Cookie（12時間）
+        secret = _cookie_secret_bytes()
+        if secret:
+            try:
+                st_ = os.stat(db_path)
+                payload = {
+                    "user_id": int(target_user_id),
+                    "username": str(target_username),
+                    "exp": time.time() + AUTH_TTL_SECONDS,
+                    "db_fp": {"size": int(st_.st_size), "mtime": int(st_.st_mtime)},
+                }
+                token = _encode_auth_token(payload, secret)
+                _set_cookie_js(AUTH_COOKIE_NAME, token, max_age_seconds=AUTH_TTL_SECONDS)
+                _set_cookie_js(
+                    LAST_USER_COOKIE_NAME,
+                    str(int(target_user_id)),
+                    max_age_seconds=LAST_USER_TTL_SECONDS,
+                )
+            except Exception:
+                # Cookie保存に失敗しても、session_stateログインは成立させる
+                pass
         st.rerun()
 
 
@@ -1097,6 +1295,9 @@ def _page_backup_restore(user) -> None:
 def main() -> None:
     st.set_page_config(page_title="Data Aggregation (Streamlit)", layout="wide", initial_sidebar_state="expanded")
     _inject_global_css()
+
+    # 再読み込み時も、最終ログインから12時間以内ならログイン状態を復元する
+    _restore_auth_from_cookie_if_possible()
 
     auth = _get_auth_state()
     with st.sidebar:
