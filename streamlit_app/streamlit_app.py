@@ -65,12 +65,6 @@ div[data-testid="stDataEditor"] [role="columnheader"] {
 div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
   overflow-x: auto;
 }
-
-/* --- selectbox等のプルダウン表示件数を「3件相当」に制限し、超過分はスクロール --- */
-div[data-baseweb="popover"] ul[role="listbox"] {
-  max-height: 120px !important; /* 約3行分 */
-  overflow-y: auto !important;
-}
 </style>
 """,
         unsafe_allow_html=True,
@@ -245,6 +239,16 @@ def _sync_text_from_select(*, select_key: str, text_key: str) -> None:
     if isinstance(v, str):
         # 空選択に戻した場合も入力欄を空に戻す（自然な挙動）
         st.session_state[text_key] = v.strip()
+
+
+def _sync_text_from_multiselect(*, select_key: str, text_key: str) -> None:
+    """
+    multiselect(max_selections=1) で選んだ値を text_input 側へ同期する。
+    """
+    v = st.session_state.get(select_key)
+    if isinstance(v, list):
+        s = str(v[0]).strip() if v else ""
+        st.session_state[text_key] = s
 
 
 def _normalize_match_result(value: str) -> str:
@@ -507,13 +511,15 @@ def _page_input(user) -> None:
             label_visibility="collapsed",
         )
     with c2b:
-        st.selectbox(
+        st.multiselect(
             "候補",
             options=[""] + decks,
+            default=[],
+            max_selections=1,
             format_func=lambda x: x or "（未選択）",
-            key="input_used_deck_select",
-            on_change=_sync_text_from_select,
-            kwargs={"select_key": "input_used_deck_select", "text_key": "input_used_deck_text"},
+            key="input_used_deck_select_ms",
+            on_change=_sync_text_from_multiselect,
+            kwargs={"select_key": "input_used_deck_select_ms", "text_key": "input_used_deck_text"},
             label_visibility="collapsed",
         )
 
@@ -529,13 +535,15 @@ def _page_input(user) -> None:
             label_visibility="collapsed",
         )
     with c3b:
-        st.selectbox(
+        st.multiselect(
             "候補",
             options=[""] + opp_names,
+            default=[],
+            max_selections=1,
             format_func=lambda x: x or "（未選択）",
-            key="input_opp_deck_select",
-            on_change=_sync_text_from_select,
-            kwargs={"select_key": "input_opp_deck_select", "text_key": "input_opp_deck_text"},
+            key="input_opp_deck_select_ms",
+            on_change=_sync_text_from_multiselect,
+            kwargs={"select_key": "input_opp_deck_select_ms", "text_key": "input_opp_deck_text"},
             label_visibility="collapsed",
         )
 
@@ -666,9 +674,25 @@ def _page_results(user) -> None:
 
         c4, c5, c6 = st.columns(3)
         with c4:
-            used_deck = st.selectbox("使用デッキ", options=[""] + used_deck_values, format_func=lambda x: x or "（全て）")
+            used_deck_ms = st.multiselect(
+                "使用デッキ",
+                options=[""] + used_deck_values,
+                default=[],
+                max_selections=1,
+                format_func=lambda x: x or "（全て）",
+                key="filter_used_deck_ms",
+            )
+            used_deck = (used_deck_ms[0] if used_deck_ms else "")
         with c5:
-            opponent_deck = st.selectbox("対面デッキ", options=opp_options, format_func=lambda x: x[1])[0]
+            opponent_deck_ms = st.multiselect(
+                "対面デッキ",
+                options=opp_options,
+                default=[],
+                max_selections=1,
+                format_func=lambda x: x[1],
+                key="filter_opponent_deck_ms",
+            )
+            opponent_deck = (opponent_deck_ms[0][0] if opponent_deck_ms else "")
         with c6:
             play_order = st.selectbox("先行/後攻", options=["", "先行", "後攻"], format_func=lambda x: x or "（全て）")
 
@@ -779,13 +803,15 @@ def _page_results(user) -> None:
 
                     ed_date = st.date_input("日付", value=target.date, key="edit_date")
                     ed_used_deck = st.text_input("使用デッキ", value=target.used_deck, key="edit_used_deck")
-                    ed_opp = st.selectbox(
+                    ed_opp_ms = st.multiselect(
                         "対面デッキ",
                         options=opp_opts,
+                        default=[],
+                        max_selections=1,
                         format_func=lambda x: x[1],
-                        index=0,
-                        key="edit_opponent_deck",
+                        key="edit_opponent_deck_ms",
                     )
+                    ed_opp = (ed_opp_ms[0] if ed_opp_ms else ("", "（未選択）"))
                     ed_play = st.selectbox("先行/後攻", options=["", "先行", "後攻"], index=(1 if target.play_order == "先行" else 2 if target.play_order == "後攻" else 0))
                     normalized_target_result = _normalize_match_result(target.match_result)
                     ed_result = st.selectbox(
@@ -852,19 +878,25 @@ def _page_analysis(user) -> None:
 
         r1c1, r1c2 = st.columns(2)
         with r1c1:
-            a_used_deck = st.selectbox(
+            a_used_deck_ms = st.multiselect(
                 "使用デッキ",
                 options=[""] + used_values,
+                default=[],
+                max_selections=1,
                 format_func=lambda x: x or "（全て）",
-                key="analysis_used_deck",
+                key="analysis_used_deck_ms",
             )
+            a_used_deck = (a_used_deck_ms[0] if a_used_deck_ms else "")
         with r1c2:
-            a_opp_deck = st.selectbox(
+            a_opp_deck_ms = st.multiselect(
                 "対面デッキ",
                 options=["", "__NONE__"] + opp_values,
+                default=[],
+                max_selections=1,
                 format_func=lambda x: "（全て）" if x == "" else ("（未入力）" if x == "__NONE__" else x),
-                key="analysis_opp_deck",
+                key="analysis_opp_deck_ms",
             )
+            a_opp_deck = (a_opp_deck_ms[0] if a_opp_deck_ms else "")
 
         r2c1, r2c2 = st.columns(2)
         with r2c1:
